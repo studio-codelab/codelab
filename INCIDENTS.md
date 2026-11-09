@@ -21,7 +21,7 @@ du `docker-compose.yml`). Les données vivent sous `/DATA/AppData/codelab/`.
 | L'administrateur est bloqué dehors, ou son mot de passe a fuité | [5](#5-ladministrateur-est-bloqué-dehors-ou-son-mot-de-passe-a-fuité) |
 | Le disque est plein | [6](#6-le-disque-est-plein) |
 | Il faut restaurer | [7](#7-restaurer) |
-| L'adresse du tunnel Cloudflare ne répond plus, ou est perdue | [8](#8-ladresse-du-tunnel-cloudflare-ne-répond-plus) |
+| L'adresse depuis internet (Tailscale) ne répond plus | [8](#8-ladresse-depuis-internet-tailscale-ne-répond-plus) |
 
 ---
 
@@ -187,32 +187,29 @@ retrouve.
 
 ---
 
-## 8. L'adresse du tunnel Cloudflare ne répond plus
+## 8. L'adresse depuis internet (Tailscale) ne répond plus
 
-En mode *Adresse aléatoire*, l'adresse `….trycloudflare.com` change à chaque redémarrage du tunnel.
-Une ancienne adresse ne revient jamais. En mode *Mon domaine*, elle ne change pas : passe à l'étape
-2 (le journal s'appelle alors `tunnel-domaine.log`).
+L'adresse `https://<machine>.<réseau>.ts.net` est fixe : elle ne change qu'avec le nom de la
+machine.
 
-1. **Retrouver l'adresse actuelle** : le dernier mail « CodeLab : nouvelle adresse depuis
-   internet », ou Paramètres > Sécurité > *Accès depuis internet* depuis le réseau local, ou :
+1. **Retrouver l'adresse** : le mail « CodeLab : ton adresse depuis internet », ou Paramètres >
+   Sécurité > *Accès depuis internet* depuis le réseau local, ou :
    ```bash
-   docker logs codelab-app-manager 2>&1 | grep "tunnel panneau"
+   docker logs codelab-app-manager 2>&1 | grep "tailscale :"
    ```
-2. **Voir ce que dit `cloudflared`** (un journal par tunnel, réécrit à chaque lancement) :
+2. **Lire ce que dit Tailscale** : la carte affiche son dernier refus. Le journal de tailscaled,
+   réécrit à chaque lancement :
    ```bash
-   docker exec codelab-app-manager tail -n 30 /var/lib/codelab/app-manager/logs/tunnel-panneau.log
-   docker exec codelab-app-manager tail -n 30 /var/lib/codelab/app-manager/logs/tunnel-apps.log
+   docker exec codelab-app-manager tail -n 30 /var/lib/codelab/app-manager/logs/tailscale.log
    ```
-   Un jeton refusé (`Unauthorized`, `invalid token`) : recopie-le depuis Cloudflare dans la carte.
-   Le tunnel tourne mais l'adresse affiche une erreur Cloudflare : vérifie ses deux *Public
-   hostnames* (`http://localhost:9011` et `http://localhost:9012`, pas `9001` ni `9002`).
-   Un échec de connexion à Cloudflare indique un réseau sortant filtré : le tunnel a besoin du port
-   `7844` sortant (UDP, ou TCP en repli). Le panneau relance un `cloudflared` arrêté dans les
-   5 secondes.
-3. **Obtenir une nouvelle adresse** : éteindre puis rallumer l'interrupteur, ou redémarrer le
-   conteneur (`docker restart codelab-app-manager`).
-4. **Couper l'accès tout de suite**, par exemple après avoir partagé l'adresse par erreur : éteindre
-   l'interrupteur. Les deux `cloudflared` s'arrêtent, et l'adresse meurt avec eux.
+   - `HTTPS must be enabled` : active HTTPS dans la console Tailscale (page DNS).
+   - `"funnel" node attribute not set` : autorise Funnel dans *Access controls*.
+   - Une clé refusée ou expirée : crées-en une autre (Settings > Keys) et colle-la dans la carte.
+     Le panneau réessaie une clé refusée une fois par minute.
+3. **Repartir de zéro** : *Déconnecter la machine* dans la carte, puis une nouvelle clé. Retire aussi
+   l'ancienne machine de la console Tailscale, sinon la nouvelle prend un nom en `-1`.
+4. **Couper l'accès tout de suite** : éteindre l'interrupteur. tailscaled s'arrête et l'adresse ne
+   répond plus. Elle revient, la même, au rallumage.
 
 ## Après l'incident
 

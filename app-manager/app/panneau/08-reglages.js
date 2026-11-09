@@ -370,18 +370,26 @@ async function sgCopieExterne(oui){
   peindreSauvegardes(await r.json());
 }
 
-/* ---------------- l'acces depuis internet (tunnel Cloudflare) ----------------
-   L'interrupteur dit l'etat voulu ; le texte dit ou en est cloudflared. Une
+/* ---------------- l'acces depuis internet (Tailscale Funnel) ----------------
+   L'interrupteur dit l'etat voulu ; le texte dit ou en est tailscaled. Une
    adresse met quelques secondes a venir : on relit tant qu'elle manque. */
 const TUNNEL_ETATS = {
-  indisponible: "cloudflared est absent de cette image : mets CodeLab à jour.",
+  indisponible: "Tailscale est absent de cette image : mets CodeLab à jour.",
   'sans-origines': "Indisponible : le port des applications (9002) n'est pas ouvert.",
   arrete: 'Désactivé.',
-  incomplet: 'En attente : enregistre le jeton et les deux adresses de ton domaine.',
-  demarrage: 'Démarrage du tunnel…',
+  'sans-cle': "En attente : enregistre une clé d'authentification Tailscale.",
+  demarrage: 'Connexion à Tailscale…',
+  erreur: 'Tailscale a refusé :',
   actif: 'Actif.',
 };
-let tunnelRelecture=null, tunnelAdresseQr='';
+let tunnelRelecture=null, tunnelAdresseQr='', tunnelReseau='';
+/* L'adresse finale, mise a jour a chaque lettre du nom de la machine. Le
+   nom suit les regles de Tailscale : minuscules, chiffres, tirets. */
+function tunnelApercu(){
+  const nom=($('tunnel-nom').value.trim().toLowerCase() || 'codelab').replace(/[^a-z0-9-]/g, '');
+  $('tunnel-apercu').textContent='https://' + nom + '.'
+    + (tunnelReseau || '<ton-réseau>.ts.net') + '/';
+}
 /* Le QR code de l'adresse du panneau, sur demande (le bouton le montre ou
    le cache). garder : le redessiner sans changer s'il est montre. */
 function tunnelQr(garder){
@@ -402,32 +410,25 @@ function peindreTunnel(d){
   const b=$('tunnel-bascule');
   b.checked=d.actif; b.disabled=d.etat==='indisponible' || d.etat==='sans-origines';
   $('tunnel-etat').textContent=TUNNEL_ETATS[d.etat] || '';
-  $('tunnel-mode').value=d.mode;
-  const domaine=d.mode==='domaine';
-  $('tunnel-domaine').hidden=!domaine;
-  $('tunnel-change').hidden=domaine;
-  if(domaine){
-    /* Les champs en cours de saisie ne sont pas ecrases par une relecture. */
-    if(document.activeElement!==$('tunnel-d-panneau')) $('tunnel-d-panneau').value=d.domaine.panneau||'';
-    if(document.activeElement!==$('tunnel-d-apps')) $('tunnel-d-apps').value=d.domaine.apps||'';
-    $('tunnel-jeton').placeholder=d.domaine.jeton ? 'Enregistré (colle-en un autre pour le changer)' : 'eyJh…';
-    $('tunnel-cible-panneau').textContent=d.cibles.panneau;
-    $('tunnel-cible-apps').textContent=d.cibles.apps;
-  }
+  /* Le message de tailscale lui-meme : il dit quoi activer dans la console. */
+  $('tunnel-erreur').style.display=d.erreur ? 'block' : 'none';
+  $('tunnel-erreur').textContent=d.erreur || '';
+  if(document.activeElement!==$('tunnel-nom')) $('tunnel-nom').value=d.nom||'';
+  tunnelReseau=d.reseau||'';
+  tunnelApercu();
+  $('tunnel-cle').placeholder=d.cle ? 'Enregistrée (colle-en une autre pour la changer)' : 'tskey-auth-…';
+  $('tunnel-deconnecter').hidden=!d.cle;
   const pret=d.etat==='actif';
   $('tunnel-adresses').hidden=!pret;
   if(pret){
     $('tunnel-panneau').value=d.panneau+'/';
     $('tunnel-apps').value=d.apps+'/';
-    /* Sur son domaine, les adresses sont deja dans les champs : le QR seul. */
-    $('tunnel-panneau').parentElement.hidden=domaine;
-    $('tunnel-apps').parentElement.hidden=domaine;
     tunnelAdresseQr=d.panneau;
     /* Deja affiche : il suit l'adresse si elle a change. */
     if($('tunnel-qr').classList.contains('on')) tunnelQr(true);
   }
   clearTimeout(tunnelRelecture);
-  if(d.actif && d.etat==='demarrage') tunnelRelecture=setTimeout(chargerTunnel, 3000);
+  if(d.actif && (d.etat==='demarrage' || d.etat==='sans-cle')) tunnelRelecture=setTimeout(chargerTunnel, 3000);
 }
 async function chargerTunnel(){
   try{
@@ -445,7 +446,7 @@ async function tunnelEnvoyer(corps, defaut){
 async function tunnelBasculer(b){
   const actif=b.checked;
   if(actif && !await demander('Ouvrir CodeLab sur internet ?',
-      "Ton panneau et tes applications auront une adresse publique. "
+      "Ton panneau et tes applications auront une adresse publique en https. "
       + "Les comptes utilisateurs pourront s'y connecter ; les applications publiques seront "
       + "visibles de tous.", 'Ouvrir')){
     b.checked=false; return;
@@ -454,18 +455,21 @@ async function tunnelBasculer(b){
   await tunnelEnvoyer({actif}, 'Réglage non enregistré.');
   b.disabled=false;
 }
-async function tunnelMode(sel){
-  await tunnelEnvoyer({mode: sel.value}, 'Réglage non enregistré.');
-}
-async function tunnelDomaine(){
-  const corps={panneau: $('tunnel-d-panneau').value.trim(), apps: $('tunnel-d-apps').value.trim()};
-  const jeton=$('tunnel-jeton').value.trim();
-  if(jeton) corps.jeton=jeton;
-  const bouton=$('tunnel-d-save');
+async function tunnelEnregistrer(){
+  const corps={nom: $('tunnel-nom').value.trim() || 'codelab'};
+  const cle=$('tunnel-cle').value.trim();
+  if(cle) corps.cle=cle;
+  const bouton=$('tunnel-save');
   bouton.disabled=true;
-  const ok=await tunnelEnvoyer(corps, 'Domaine non enregistré.');
+  const ok=await tunnelEnvoyer(corps, 'Réglage non enregistré.');
   bouton.disabled=false;
-  if(ok){ $('tunnel-jeton').value=''; notifier('Domaine enregistré.'); }
+  if(ok){ $('tunnel-cle').value=''; notifier('Enregistré.'); }
+}
+async function tunnelDeconnecter(){
+  if(!await demander('Déconnecter cette machine de Tailscale ?',
+      "L'accès depuis internet s'arrête et la clé est oubliée. Pour le rallumer, il faudra "
+      + "une nouvelle clé.", 'Déconnecter', true)) return;
+  await tunnelEnvoyer({deconnecter: true}, 'Déconnexion impossible.');
 }
 
 /* ---------------- la conservation du journal ----------------

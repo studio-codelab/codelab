@@ -418,8 +418,8 @@ def separer_les_origines():
         # rond. Le panneau sert alors l'application, comme avant la
         # separation -- degrade, mais joignable.
         if not (domaine_des_applications() or origine_applications()):
-            # Par le tunnel, jamais ce repli : il servirait l'application dans
-            # l'origine du panneau, a tout internet. On attend le second tunnel.
+            # Par Funnel, jamais ce repli : il servirait l'application dans
+            # l'origine du panneau, a tout internet. On attend son adresse.
             if par_le_tunnel():
                 return Response(_page("Encore un instant",
                                       "L'adresse des applications se prépare.",

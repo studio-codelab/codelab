@@ -42,7 +42,7 @@ STRUCTURE   Ce fichier : les imports, les chemins et constantes partages,
               11 notifications Web Push, API, renommage
               12 pages, videos, le hub et l'application Messages
               13 hub, proxy, application fermee, projets par defaut
-              14 acces par le tunnel Cloudflare, passage de la connexion
+              14 acces depuis internet par Tailscale Funnel
               15 serveur HTTP
 CHOIX       - Le cadre /ouvrir.html est un fichier a marqueurs, rempli en un
               seul passage (ouvrir_dans_le_panneau) : sa page et son script,

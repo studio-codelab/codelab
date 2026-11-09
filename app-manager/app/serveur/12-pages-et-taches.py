@@ -394,9 +394,6 @@ def index():
     page = (DASHBOARD_PAGE
             .replace("__JETON__", _json_dans_un_script(jeton_session()))
             .replace("__APPS_MODELE__", _json_dans_un_script(modele_adresse_application()))
-            # Par le tunnel : le hub ouvre les applications par /passage/
-            # (voir 14-tunnel), sans cadre.
-            .replace("__PASSAGE__", _json_dans_un_script(par_le_tunnel()))
             .replace("__ROOT__", _json_dans_un_script(ROOT))
             .replace("__ROLE__", _json_dans_un_script(role_courant() or ""))
             # Seul l'admin en a besoin : la page lui propose de regler l'envoi

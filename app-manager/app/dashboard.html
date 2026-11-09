@@ -3196,49 +3196,22 @@ a.pj:hover{border-color:var(--accent)}
        des donnees personnelles : il ne les garde que le temps choisi ici, en
        local comme dans Postgres (purge chaque jour, et aussitot le reglage
        change). Administrateur seulement. -->
-  <!-- ACCES DEPUIS INTERNET : deux tunnels Cloudflare (voir 14-tunnel), un
+  <!-- ACCES DEPUIS INTERNET : Tailscale Funnel (voir 14-tunnel), un
        interrupteur. Administrateur seulement ; l'administration elle-meme
-       ne passe jamais par le tunnel. -->
+       ne passe jamais par internet. La cle ne revient jamais du serveur :
+       le champ dit seulement si elle est enregistree. -->
   <div class="zone" id="zone-tunnel" hidden>
     <div class="zone-title">Accès depuis internet</div>
     <div class="card settings-card sans-pli">
       <div class="card-top"><div class="card-name">
-        <b id="tunnel-titre">Tunnel Cloudflare</b>
-        <div class="path">Ouvre CodeLab depuis n'importe où, sans rien ouvrir sur la box.</div>
+        <b id="tunnel-titre">Tailscale Funnel</b>
+        <div class="path">Une adresse fixe en https, gratuite, sans rien ouvrir sur la box.</div>
       </div>
       <label class="interrupteur" onclick="event.stopPropagation()" title="Activer ou désactiver">
         <input type="checkbox" id="tunnel-bascule" onchange="tunnelBasculer(this)"
                aria-labelledby="tunnel-titre"><span></span></label></div>
       <div class="hint" id="tunnel-etat"></div>
-      <div class="field" style="margin-top:12px">
-        <label for="tunnel-mode">Adresse</label>
-        <select id="tunnel-mode" onchange="tunnelMode(this)">
-          <option value="aleatoire">Aléatoire, gratuite</option>
-          <option value="domaine">Mon domaine, fixe</option>
-        </select>
-      </div>
-      <!-- MON DOMAINE : un tunnel nomme, cree dans le compte Cloudflare de
-           l'administrateur. Le jeton ne revient jamais du serveur : le champ
-           dit seulement s'il est enregistre. -->
-      <div id="tunnel-domaine" hidden>
-        <div class="hint">Dans Cloudflare (Zero Trust &gt; Networks &gt; Tunnels) : crée un
-          tunnel, copie son jeton, puis ajoute deux <i>Public hostnames</i> :
-          ton adresse du panneau vers <code id="tunnel-cible-panneau">http://localhost:9011</code>,
-          celle des applications vers <code id="tunnel-cible-apps">http://localhost:9012</code>.</div>
-        <div class="field" style="margin-top:12px"><label for="tunnel-jeton">Jeton du tunnel</label>
-          <input id="tunnel-jeton" type="password" autocomplete="off" spellcheck="false"></div>
-        <div class="grid2">
-          <div class="field"><label for="tunnel-d-panneau">Adresse du panneau</label>
-            <input id="tunnel-d-panneau" placeholder="codelab.mondomaine.fr" autocapitalize="off"
-                   spellcheck="false"></div>
-          <div class="field"><label for="tunnel-d-apps">Adresse des applications</label>
-            <input id="tunnel-d-apps" placeholder="apps.mondomaine.fr" autocapitalize="off"
-                   spellcheck="false"></div>
-        </div>
-        <div class="actions">
-          <button class="btn btn-primary" id="tunnel-d-save" onclick="tunnelDomaine()">Enregistrer</button>
-        </div>
-      </div>
+      <div class="err" id="tunnel-erreur" style="display:none"></div>
       <div id="tunnel-adresses" hidden>
         <div class="field" style="margin-top:12px"><label for="tunnel-panneau">Adresse du panneau</label>
           <input id="tunnel-panneau" readonly onclick="this.select()"></div>
@@ -3250,9 +3223,28 @@ a.pj:hover{border-color:var(--accent)}
         <div class="field"><label for="tunnel-apps">Adresse des applications</label>
           <input id="tunnel-apps" readonly onclick="this.select()"></div>
       </div>
-      <div class="hint" id="tunnel-change">L'adresse change à chaque redémarrage : tu reçois la nouvelle par mail.</div>
-      <div class="hint">Les comptes utilisateurs s'y connectent ; l'administration reste réservée au réseau local.
-        Une application publique devient visible de tout internet.</div>
+      <div class="hint" style="margin-top:12px">Une fois, sur tailscale.com (compte gratuit) :
+        active <i>HTTPS</i> (DNS), autorise <i>Funnel</i> (Access controls), puis crée une clé
+        d'authentification (Settings &gt; Keys).</div>
+      <div class="grid2">
+        <div class="field"><label for="tunnel-cle">Clé d'authentification</label>
+          <input id="tunnel-cle" type="password" autocomplete="off" spellcheck="false"
+                 placeholder="tskey-auth-…"></div>
+        <div class="field"><label for="tunnel-nom">Nom de la machine</label>
+          <input id="tunnel-nom" placeholder="codelab" autocapitalize="off" spellcheck="false"
+                 oninput="tunnelApercu()"></div>
+      </div>
+      <!-- L'ADRESSE FINALE, telle qu'elle sera : le nom de la machine, puis
+           celui du reseau Tailscale (connu apres la premiere connexion).
+           Vecu : « Comment choisir mon url ? Je veux voir simplement l'url
+           final ». -->
+      <div class="hint">Ton adresse : <b id="tunnel-apercu"></b></div>
+      <div class="actions">
+        <button class="btn btn-primary" id="tunnel-save" onclick="tunnelEnregistrer()">Enregistrer</button>
+        <button class="btn btn-default" id="tunnel-deconnecter" onclick="tunnelDeconnecter()" hidden>Déconnecter la machine</button>
+      </div>
+      <div class="hint">Les comptes utilisateurs s'y connectent, Face ID compris ; l'administration
+        reste réservée au réseau local. Une application publique devient visible de tout internet.</div>
     </div>
   </div>
 
@@ -3837,7 +3829,7 @@ a.pj:hover{border-color:var(--accent)}
 <script>
 window.CODELAB_PAGE = {jeton: __JETON__, appsModele: __APPS_MODELE__, root: __ROOT__,
                        role: __ROLE__, utilisateur: __UTILISATEUR__, smtp: __SMTP__,
-                       profil: __PROFIL__, passage: __PASSAGE__};
+                       profil: __PROFIL__};
 </script>
 <script src="/panneau.js?v=__PANNEAU_VERSION__"></script>
 </div>

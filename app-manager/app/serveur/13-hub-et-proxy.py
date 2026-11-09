@@ -1118,10 +1118,6 @@ def _proxy(name, sub):
     # seule. Une session ouverte garde la priorite (et son identite).
     if request.method == "GET" and TOURNAGE_PARAMETRE in request.args:
         return echanger_le_ticket(name, sub)
-    # Le passage de la connexion par le tunnel (voir 14-tunnel).
-    if (request.method == "GET" and PASSAGE_PARAMETRE in request.args
-            and sur_le_tunnel_des_apps()):
-        return echanger_le_passage(name)
     tournage = not is_authed() and tournage_en_cours(name)
     if visibilite(a) == VISIBILITE_PRIVEE and not tournage:
         if not is_authed():
@@ -1131,11 +1127,6 @@ def _proxy(name, sub):
             # l'ecran d'accueil, qui n'a pas encore de session a elle.
             # Avec la suite : apres la connexion, le visiteur revient dans
             # l'application, a la page qu'il demandait (/ouvrir.app/...).
-            # Par le tunnel, la session vit sur l'adresse du panneau : le
-            # passage la transporte ici (voir 14-tunnel).
-            if sur_le_tunnel_des_apps():
-                return redirect(lien_panneau() + "passage/" + urllib.parse.quote(name, safe="")
-                                + "/" + urllib.parse.quote(chemin_dans_app(sub), safe="/%~"))
             return redirect(lien_panneau() + "login?suite=" + urllib.parse.quote(
                 suite_vers_application(name, sub), safe="/"))
         if not peut_voir(name):
