@@ -428,3 +428,36 @@ def test_changer_de_jeton_relance_le_tunnel_nomme(tunnel, monkeypatch):
     app.ecrire_reglage("tunnel_jeton", autre)
     app.tour_du_tunnel()
     assert arretes == ["domaine"] and lances == ["domaine"]
+
+
+# ------------------------------ les cles d'acces par le tunnel ------------------------------
+
+def test_par_le_tunnel_sur_mon_domaine_touch_id_s_active(tunnel):
+    """Vecu : « Je ne peux pas activer Touch ID », tunnel active. Cloudflare
+    parle en https au navigateur, mais la requete arrive en http au panneau :
+    sans le savoir, il refusait les cles d'acces « faute de HTTPS »."""
+    app.ecrire_reglage("tunnel_jeton", _jeton_cloudflare())
+    app.ecrire_parametre("tunnel", {"actif": True, "mode": "domaine",
+                                    "panneau": "codelab.toi.fr", "apps": "apps.toi.fr"})
+    with app.flask_app.test_request_context(
+            "/", base_url="http://codelab.toi.fr:%d" % app.TUNNEL_PORT_PANNEAU):
+        rp_id, origine, empechement = app.passkey_contexte()
+    assert (rp_id, empechement) == ("codelab.toi.fr", "")
+    assert origine.startswith("https://codelab.toi.fr")
+
+
+def test_par_l_adresse_aleatoire_une_cle_d_acces_est_refusee_avec_sa_raison(tunnel):
+    """Une cle est liee au nom exact du site : sur une adresse
+    trycloudflare.com, elle cesserait de marcher au prochain redemarrage."""
+    with app.flask_app.test_request_context(
+            "/", base_url="http://%s:%d" % (HOTE_PANNEAU, app.TUNNEL_PORT_PANNEAU)):
+        _, _, empechement = app.passkey_contexte()
+    assert "adresse aléatoire" in empechement and "Mon domaine" in empechement
+
+
+def test_en_local_par_l_adresse_ip_la_raison_dit_quoi_faire():
+    with app.flask_app.test_request_context("/", base_url="http://192.168.1.20:9001"):
+        _, _, empechement = app.passkey_contexte()
+    assert "HTTPS" in empechement and "Proxy de confiance" not in empechement
+    with app.flask_app.test_request_context("/", base_url="http://localhost:9001"):
+        assert app.passkey_contexte()[2] == ""

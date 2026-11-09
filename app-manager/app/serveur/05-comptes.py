@@ -640,20 +640,25 @@ def passkeys_disponibles():
 
 
 def _hote_et_schema():
-    """(hote sans port, schema, https_annonce_sans_confiance).
+    """(hote sans port, schema), tels que le navigateur les voit.
 
     X-Forwarded-Proto, n'importe quel client peut le poser : il ne sert
     qu'a l'identifiant de la cle, que la signature du navigateur verifie de
     toute facon (voir plus bas).
     """
     hote = (request.host or "").split(":")[0]
+    # Par le tunnel Cloudflare, le navigateur parle TOUJOURS en https, que
+    # Cloudflare l'annonce ou non (voir par_le_tunnel, 14-tunnel). Vecu :
+    # « Je ne peux pas activer Touch ID » apres avoir active le tunnel.
+    if par_le_tunnel():
+        return hote, "https"
     # Le schema annonce par un proxy suffit ici : la signature d'une cle
     # d'acces porte l'origine que le navigateur a REELLEMENT vue, et ne
     # concordera pas avec un schema invente.
     annonce = (request.headers.get("X-Forwarded-Proto") or "").lower()
     if annonce in ("http", "https"):
-        return hote, annonce, False
-    return hote, request.scheme, False
+        return hote, annonce
+    return hote, request.scheme
 
 
 def passkey_contexte():
@@ -662,18 +667,23 @@ def passkey_contexte():
     empechement vaut "" quand tout est reuni. Sinon c'est la phrase a
     afficher : le navigateur, lui, se contenterait d'une erreur illisible.
     """
-    hote, schema, https_non_cru = _hote_et_schema()
+    hote, schema = _hote_et_schema()
     origine = f"{schema}://{request.host}"
     if not hote:
         return "", "", "Hote inconnu."
     local = hote in ("localhost", "127.0.0.1", "::1")
     if schema != "https" and not local:
-        if https_non_cru:
-            return "", "", ("Un proxy annonce HTTPS, mais ce panneau ne le croit pas : "
-                            "coche « Proxy de confiance » dans Exposition.")
         return "", "", ("Les clés d'accès exigent une connexion HTTPS : le navigateur "
-                        "refuse de les créer en clair. Mets le TLS en place, puis "
+                        "refuse de les créer en clair. Ouvre le panneau par une adresse "
+                        "en https (le tunnel Cloudflare, Paramètres > Sécurité), puis "
                         "reviens ici.")
+    # Une cle est liee au nom EXACT du site. Celui d'un Quick Tunnel change a
+    # chaque redemarrage : une cle creee dessus cesserait de marcher sans
+    # prevenir, et Face ID semblerait casse.
+    if par_le_tunnel() and mode_du_tunnel() == "aleatoire":
+        return "", "", ("Avec l'adresse aléatoire du tunnel, une clé d'accès cesserait de "
+                        "marcher au prochain redémarrage : elle est liée à l'adresse. Passe "
+                        "le tunnel sur « Mon domaine », ou connecte-toi avec ton code.")
     # Une adresse IP ne peut pas servir de "relying party id" : la norme
     # exige un nom de domaine. C'est la meme exigence que le certificat.
     if re.fullmatch(r"[0-9.]+|\[[0-9a-fA-F:]+\]", hote) and not local:

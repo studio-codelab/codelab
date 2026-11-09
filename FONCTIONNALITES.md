@@ -655,7 +655,10 @@ Détails : [`app-manager/vps/README.md`](app-manager/vps/README.md).
      `http://localhost:9011`, celle des applications (ex. `apps.mondomaine.fr`) vers
      `http://localhost:9012`.
 
-  Dans CodeLab, colle le jeton, saisis les deux mêmes adresses et enregistre. Elles ne changent
+  Dans CodeLab, colle le jeton, saisis les deux mêmes adresses et enregistre.
+  Sur cette adresse en https, un compte utilisateur peut activer Face ID / Touch ID. Sur l'adresse
+  aléatoire, le panneau le refuse et dit pourquoi : une clé d'accès est liée au nom exact du site,
+  elle cesserait de marcher au redémarrage suivant. Elles ne changent
   plus, et le passage de connexion, les règles d'accès et l'administration réservée au réseau local
   sont les mêmes. Le jeton est chiffré et ne réapparaît jamais ; il se remplace en en collant un
   autre.
