@@ -162,6 +162,25 @@ def origine_du_tunnel(quoi):
     return "https://" + hote + ("" if port == 443 else f":{port}")
 
 
+def adresse_funnel():
+    """L'adresse du panneau par Funnel si l'acces est allume, ou "".
+
+    Celle de la machine connectee ; a defaut, la derniere annoncee : au
+    redemarrage du panneau, tailscaled met quelques secondes a repondre, et
+    un lien d'invitation fait entre-temps doit deja la porter. Revalidee
+    (_HOTE_TUNNEL) : elle vient de la base. Sert a adresse_publique
+    (09-applications), donc aux liens d'invitation.
+    """
+    if not tunnel_voulu():
+        return ""
+    actuelle = origine_du_tunnel("panneau")
+    if actuelle:
+        return actuelle
+    annoncee = str(lire_tunnel().get("annoncee") or "")
+    hote = annoncee[len("https://"):] if annoncee.startswith("https://") else ""
+    return annoncee if _HOTE_TUNNEL.match(hote) else ""
+
+
 def _sans_privileges_tunnel():
     """preexec de tailscaled et de tailscale : leur propre uid et leur
     propre groupe, sans celui de /workspace (voir TUNNEL_UID). Sans effet

@@ -376,3 +376,30 @@ def test_un_funnel_refuse_n_est_pas_reessaye_a_chaque_tour(funnel, monkeypatch):
     app._tour_connecte(etat)
     app._tour_connecte(etat)
     assert len(essais) == 1
+
+
+def test_le_lien_d_invitation_porte_l_adresse_tailscale(funnel, monkeypatch):
+    """Vecu : « Le lien partage aux nouveaux utilisateurs doit embarquer
+    l'url tailscale configure si active. » L'administrateur invite depuis le
+    reseau local : un lien fait sur l'adresse locale ne s'ouvrirait pas de
+    l'exterieur."""
+    monkeypatch.delenv("APP_MANAGER_PUBLIC_URL", raising=False)
+    app.ecrire_parametre("tunnel", {"actif": True})
+    with app.flask_app.test_request_context("/", base_url="http://192.168.1.20:9001"):
+        assert app.lien_invitation("abc") == "https://%s/invitation/abc" % HOTE
+    # Au redemarrage, avant que tailscaled reponde : la derniere adresse
+    # annoncee, revalidee.
+    monkeypatch.setitem(app._tunnel, "hote", "")
+    app.ecrire_parametre("tunnel", {"actif": True, "annoncee": "https://" + HOTE})
+    assert app.adresse_publique() == "https://" + HOTE
+    app.ecrire_parametre("tunnel", {"actif": True, "annoncee": "https://evil.example"})
+    assert app.adresse_publique() == ""
+    # Acces eteint : plus l'adresse Tailscale.
+    monkeypatch.setitem(app._tunnel, "hote", HOTE)
+    app.ecrire_parametre("tunnel", {"actif": False, "annoncee": "https://" + HOTE})
+    with app.flask_app.test_request_context("/", base_url="http://192.168.1.20:9001"):
+        assert app.lien_invitation("abc") == "http://192.168.1.20:9001/invitation/abc"
+    # Une adresse publique fixee a la main garde la priorite.
+    app.ecrire_parametre("tunnel", {"actif": True})
+    monkeypatch.setenv("APP_MANAGER_PUBLIC_URL", "https://codelab.example.org/")
+    assert app.adresse_publique() == "https://codelab.example.org"

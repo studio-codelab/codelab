@@ -657,12 +657,19 @@ def noter_l_adresse_publique():
 def adresse_publique():
     """L'adresse publique du serveur, ou "".
 
-    La variable d'environnement l'emporte ; sinon, la derniere adresse
+    La variable d'environnement l'emporte ; puis l'adresse Tailscale Funnel
+    quand l'acces depuis internet est allume ; sinon, la derniere adresse
     constatee (noter_l_adresse_publique).
+    Vecu : « Le lien partage aux nouveaux utilisateurs doit embarquer l'url
+    tailscale configure si active. » Un lien d'invitation fait sur
+    l'adresse locale ne s'ouvre pas de l'exterieur.
     """
     depuis_env = (os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()
     if depuis_env:
         return depuis_env.rstrip("/")
+    funnel = adresse_funnel()
+    if funnel:
+        return funnel
     return str(lire_exposition().get("adresse_publique") or "").strip().rstrip("/")
 
 

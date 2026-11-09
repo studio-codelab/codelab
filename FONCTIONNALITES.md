@@ -654,6 +654,9 @@ Détails : [`app-manager/vps/README.md`](app-manager/vps/README.md).
 
   *Déconnecter la machine* la retire du réseau Tailscale et oublie la clé.
 
+  Accès allumé, **les liens d'invitation portent l'adresse Tailscale** : un nouvel utilisateur
+  peut l'ouvrir de n'importe où, même si l'invitation part du réseau local.
+
 ## 11. Installation et mise à jour
 
 Détails : [`README.md`](README.md).
