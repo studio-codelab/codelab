@@ -289,7 +289,8 @@ def test_un_refus_de_tailscale_s_affiche_tel_quel_et_sans_danger(funnel, monkeyp
     assert erreur.startswith("Funnel not available; HTTPS must be enabled.")
     assert "\x1b" not in erreur and "\n" not in erreur and len(erreur) <= 300
     js = _lire_source("app-manager/app/panneau/08-reglages.js")
-    assert "$('tunnel-erreur').textContent=d.erreur" in js
+    peindre = js.split("function peindreTunnel")[1].split("\nfunction ")[0]
+    assert "erreur.textContent=d.erreur" in peindre and "innerHTML" not in peindre
 
 
 def test_les_ports_de_funnel_n_ecoutent_que_sur_la_boucle_locale():
@@ -336,3 +337,42 @@ def test_la_carte_montre_l_adresse_finale(funnel):
     js = _lire_source("app-manager/app/panneau/08-reglages.js")
     assert "function tunnelApercu()" in js and "$('tunnel-apercu').textContent=" in js
     assert 'oninput="tunnelApercu()"' in _page_panneau("dashboard.html")
+
+
+def test_funnel_qui_attend_un_accord_montre_le_lien_au_lieu_d_un_delai_depasse(funnel,
+                                                                              monkeypatch):
+    """Vecu : « TimeoutExpired: Command [... 'funnel', '--bg', '--https=443',
+    ...] timed out after 30 seconds ». Funnel pas encore autorise, tailscale
+    affiche un lien vers sa console puis attend : le lien doit arriver dans
+    la carte, et seul ce domaine y devient cliquable."""
+    lien = "https://login.tailscale.com/f/funnel?node=nAbC123CNTRL"
+
+    def attend(cmd, timeout=20, **kw):
+        raise app.subprocess.TimeoutExpired(
+            cmd, timeout, output=("Funnel is not enabled on your tailnet.\n"
+                                   "To enable, visit:\n\n         " + lien + "\n").encode())
+    monkeypatch.setattr(app.subprocess, "run", attend)
+    code, sortie = app._tailscale("funnel", "--bg", "--https=443", "http://127.0.0.1:9011")
+    assert code == -2 and lien in sortie
+    erreur = app._ouvrir_funnel()
+    assert erreur.endswith(lien) and "TimeoutExpired" not in erreur
+    # Un autre domaine reste du texte.
+    monkeypatch.setattr(app, "_tailscale",
+                        lambda *a, **k: (1, "visit https://evil.example/f/funnel"))
+    assert "Tailscale attend" not in app._ouvrir_funnel()
+    js = _lire_source("app-manager/app/panneau/08-reglages.js")
+    assert "/https:\\/\\/login\\.tailscale\\.com\\/" in js and "a.textContent=" in js
+    assert "innerHTML" not in js.split("function peindreTunnel")[1].split("\nfunction ")[0]
+
+
+def test_un_funnel_refuse_n_est_pas_reessaye_a_chaque_tour(funnel, monkeypatch):
+    """Chaque essai peut attendre 30 s, verrou tenu : une fois par minute,
+    ou tout de suite si l'on rallume l'interrupteur."""
+    essais = []
+    monkeypatch.setitem(app._tunnel, "funnel", False)
+    monkeypatch.setitem(app._tunnel, "essai_funnel", 0)
+    monkeypatch.setattr(app, "_ouvrir_funnel", lambda: essais.append(1) or "refus")
+    etat = {"BackendState": "Running", "Self": {"HostName": "codelab", "DNSName": HOTE + "."}}
+    app._tour_connecte(etat)
+    app._tour_connecte(etat)
+    assert len(essais) == 1

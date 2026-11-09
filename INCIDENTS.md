@@ -204,6 +204,9 @@ machine.
    ```
    - `HTTPS must be enabled` : active HTTPS dans la console Tailscale (page DNS).
    - `"funnel" node attribute not set` : autorise Funnel dans *Access controls*.
+   - « Tailscale attend ton accord » avec un lien : ouvre-le (compte Tailscale connecté), accepte,
+     puis éteins et rallume l'interrupteur pour réessayer tout de suite. Sans cela, le panneau
+     réessaie seul une fois par minute.
    - Une clé refusée ou expirée : crées-en une autre (Settings > Keys) et colle-la dans la carte.
      Le panneau réessaie une clé refusée une fois par minute.
 3. **Repartir de zéro** : *Déconnecter la machine* dans la carte, puis une nouvelle clé. Retire aussi
