@@ -281,6 +281,9 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 2. Un code (connexion, vérification, réinitialisation) n'est stocké que sous forme d'empreinte. Il
    sert une fois, expire et accepte 5 essais au plus.
 3. Un code ne part que vers une destination enregistrée sur le compte, après un mot de passe juste.
+   De même pour une demande d'approbation : elle ne part que vers les appareils connectés du compte.
+   Elle s'accepte en touchant le nombre affiché sur l'écran de connexion, qui n'est pas dans la
+   notification ; un mauvais nombre la refuse.
 4. La boîte mail seule ne permet jamais de prendre un compte.
 5. Un compte qui a déjà un facteur ne peut pas en enregistrer un nouveau sur le seul mot de passe.
 6. Au plus 5 échecs par 5 minutes et par IP sur toutes les routes de connexion.

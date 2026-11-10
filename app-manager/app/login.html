@@ -781,17 +781,36 @@ function copierSecret(){
    autres moyens ce compte possede. La page n'en devine rien. */
 let moyenCourant='';
 const LIBELLES_MOYEN={totp:"Code de mon application d'authentification",
-                      email:'Recevoir un code par mail', passkey:'Face ID'};
+                      email:'Recevoir un code par mail', passkey:'Face ID',
+                      appareil:'Valider sur mon téléphone'};
+/* VALIDER SUR UN AUTRE APPAREIL : une notification part vers les appareils
+   deja connectes ; on y touche le nombre affiche ici. La page attend la
+   reponse sans rien a taper (voir login_facteur_appareil). */
+let attenteAppareil=null;
+function attendreApprobation(){
+  clearTimeout(attenteAppareil);
+  attenteAppareil=setTimeout(async()=>{
+    try{
+      const r=await fetch('/login/second-facteur/appareil',{method:'POST'});
+      if(r.status===202){ attendreApprobation(); return; }
+      const d=await r.json();
+      if(r.ok){ location.href=SUITE; return; }
+      err.textContent=d.error||'Refusé.'; err.style.display='block';
+    }catch(e){ attendreApprobation(); }
+  }, 2000);
+}
 function afficherCode(d){
   moyenCourant=d.moyen;
   LIBELLES_MOYEN.passkey=nomDuGeste();
   $$('totp-bloc').style.display='block';
   const parCle = d.moyen==='passkey', parMail = d.moyen==='email';
+  const parAppareil = d.moyen==='appareil';
+  clearTimeout(attenteAppareil);
   /* FACE ID / TOUCH ID : aucun code. Ni a lire, ni a taper -- l'appareil
      confirme seul. Le code n'apparait que pour le mail ou l'application. */
   $$('facteur-pk').style.display = parCle ? 'block' : 'none';
-  $$('code-champ').style.display = parCle ? 'none' : 'block';
-  go.style.display = parCle ? 'none' : '';
+  $$('code-champ').style.display = (parCle || parAppareil) ? 'none' : 'block';
+  go.style.display = (parCle || parAppareil) ? 'none' : '';
   go.textContent='Valider';
   $$('facteur-pk-geste').textContent = nomDuGeste();
   $$('connexion-champs').style.display='none';
@@ -802,6 +821,9 @@ function afficherCode(d){
   $$('facteur-ico').innerHTML = parCle ? iconeGeste() : parMail ? ICONES.mail : ICONES.appli;
   $$('code-info').innerHTML = parCle
     ? 'Confirme que c’est bien toi avec <b>'+esc(nomDuGeste())+'</b>. Aucun code à saisir.'
+    : parAppareil
+      ? 'Ouvre la notification sur ton téléphone, puis touche le nombre <b class="nombre-appareil">'
+        + esc(String(d.nombre||'')) + '</b>.'
     : parMail
       ? (d.destination ? 'Saisis le code à six chiffres envoyé à <b>'+esc(d.destination)+'</b>.'
                        : 'Saisis le code à six chiffres reçu par mail.')
@@ -821,12 +843,15 @@ function afficherCode(d){
   $$('autres-moyens').classList.remove('ouvert');
   viderCases();
   document.querySelector('.boite h2').textContent = parCle ? nomDuGeste()
+    : parAppareil ? 'Valide sur ton téléphone'
     : parMail ? 'Vérifie tes mails' : 'Code de vérification';
   document.querySelector('.boite .st').textContent='Dernière étape : confirme que c’est bien toi.';
   if(parMail && d.envoye) compteARebours(60);
   /* Face ID se lance tout seul ; le bouton reste si le navigateur demande
      un geste de plus. */
-  if(parCle) facteurPasskey(true); else setTimeout(()=>cases[0].focus(), 40);
+  if(parCle) facteurPasskey(true);
+  else if(parAppareil) attendreApprobation();
+  else setTimeout(()=>cases[0].focus(), 40);
 }
 
 /* ---------------- le code, une case par chiffre ---------------- */

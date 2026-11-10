@@ -342,6 +342,12 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 Détails : [`SECURITE.md`](SECURITE.md) et [`app-manager/README.md`](app-manager/README.md).
 
 - **Deux rôles** : administrateur et utilisateur.
+- **Valider sur mon téléphone** (comptes utilisateurs) : sur un ordinateur sans Face ID ni Windows
+  Hello, le second facteur est un appui sur un appareil déjà connecté et abonné aux notifications.
+  Après le mot de passe, l'écran affiche un nombre à deux chiffres ; sur le téléphone, la
+  notification ouvre une page qui en propose trois. Le bon nombre ouvre la session, et un mauvais la
+  refuse. *Ce n'est pas moi* refuse aussi. La demande vaut deux minutes, une fois. Ce moyen apparaît
+  dès qu'un appareil du compte a activé les notifications (Paramètres > Apparence).
 - **Créer son compte avec Face ID** (iPhone, iPad, Mac, Android) : sur la page d'invitation, après
   le nom, le bouton *Créer mon compte avec Face ID* (ou *avec ton empreinte*) crée le compte et sa
   clé d'accès d'un geste, sans mot de passe à choisir ni QR code. Il n'apparaît qu'en HTTPS, par un

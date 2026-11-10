@@ -283,6 +283,8 @@ def _second_facteur_utilisateur(d, nom, compte):
     # autre methode » -- sauf s'il est le dernier moyen utilise.
     if passkeys_du_compte(nom) and passkey_utilisable():
         moyens = moyens + [MOYEN_PASSKEY]
+    if approbation_possible(nom):
+        moyens = moyens + [MOYEN_APPAREIL]
     moyens = dernier_moyen_en_tete(moyens, compte.get("dernier_moyen"))
     code = d.get("code")
     # Sans aucun moyen (ni secret, ni code envoye), un code tape ne prouve
@@ -322,6 +324,15 @@ def _second_facteur_utilisateur(d, nom, compte):
             attendre_second_facteur(nom)
             return jsonify({"totp": True, "second_facteur": True,
                             "moyen": moyen, "moyens": moyens}), 401
+        if moyen == MOYEN_APPAREIL:
+            # Une notification part : compte comme une tentative, comme le
+            # code par mail -- sinon ce formulaire ferait sonner les
+            # telephones en boucle a qui connait un mot de passe.
+            register_failed_attempt()
+            attendre_second_facteur(nom)
+            nombre = demander_approbation(nom)
+            return jsonify({"totp": True, "second_facteur": True, "moyen": moyen,
+                            "moyens": moyens, "nombre": nombre}), 401
         reponse = {"totp": True, "moyen": moyen, "moyens": moyens}
         if moyen == MOYEN_TOTP:
             # Rien ne part : choisir l'application ne coute pas d'essai. Vecu :
@@ -433,7 +444,7 @@ def dernier_moyen_en_tete(moyens, dernier):
 def noter_dernier_moyen(qui, moyen):
     """Retient la methode qui vient d'ouvrir la session. Jamais d'exception :
     la connexion est faite, le souvenir n'est qu'un confort."""
-    if moyen not in (MOYEN_EMAIL, MOYEN_TOTP, MOYEN_PASSKEY):
+    if moyen not in (MOYEN_EMAIL, MOYEN_TOTP, MOYEN_PASSKEY, MOYEN_APPAREIL):
         return
     try:
         if qui == NOM_ADMIN:
@@ -565,6 +576,197 @@ def login_facteur_passkey():
         return erreur
     session.pop("facteur_attente", None)
     return _ouvrir_session_par_cle(proprietaire)
+
+
+# ------------------------- valider sur mon telephone -------------------------
+#
+# Vecu : « Trouver une solution pour double authentification simplifie
+# autant que faceid hors apple ». Un ordinateur sans Face ID ni Windows
+# Hello, un navigateur qui ne garde pas les cles : le second facteur devient
+# un appui sur un appareil deja connecte. Apres le mot de passe, une
+# notification part vers les appareils abonnes du compte ; l'ecran de
+# connexion montre un nombre a deux chiffres ; sur le telephone, la page
+# /approuver/<id> en propose trois, et seul le bon ouvre la session.
+# POURQUOI le nombre : sans lui, un appui reflexe sur une notification
+#   inattendue ouvrirait le compte a qui a vole le mot de passe (« fatigue
+#   des notifications »). Le nombre n'est pas dans la notification : il
+#   faut avoir l'ecran de connexion sous les yeux. Un mauvais nombre refuse
+#   la demande, sans second essai.
+# POURQUOI c'est un second facteur : seule une session deja ouverte DE CE
+#   COMPTE approuve (require_auth, meme nom), et la demande ne s'acheve que
+#   dans le navigateur qui a donne le mot de passe (session, attente du
+#   second facteur), en deux minutes, une fois.
+# REGLE : 1 (jamais le mot de passe seul), 3 (la notification ne part que
+#   vers les appareils du compte, apres un mot de passe juste), 6 (une
+#   demande compte comme un essai), 13 (la page de connexion attend sans
+#   session : route exemptee, comme les autres etapes de connexion).
+# DEPEND DE : notifier_compte et abonnements_push (11-notifications), qui ne
+#   visent que les appareils encore connectes ; afficherCode (login.html).
+# ECARTE : approuver d'un simple bouton, sans nombre (voir plus haut) ;
+#   l'administrateur, dont les connexions ne viennent que du reseau local et
+#   gardent leurs propres facteurs.
+APPROBATION_VALIDITE = 120
+_approbations = {}
+_approbations_verrou = threading.Lock()
+
+
+def approbation_possible(nom):
+    """Un appareil de ce compte peut-il recevoir la demande ?"""
+    try:
+        return nom != NOM_ADMIN and bool(abonnements_push(nom)) and cle_vapid() is not None
+    except Exception:                                             # noqa: BLE001
+        return False
+
+
+def _oublier_les_approbations_finies():
+    maintenant = time.time()
+    for ident in [i for i, a in _approbations.items() if a["fin"] <= maintenant]:
+        _approbations.pop(ident, None)
+
+
+def demander_approbation(nom):
+    """Cree la demande, la notifie, et rend le nombre a afficher."""
+    ident = secrets.token_urlsafe(18)
+    nombre = 10 + secrets.randbelow(90)
+    agent = decrire_agent(request.headers.get("User-Agent"))
+    with _approbations_verrou:
+        _oublier_les_approbations_finies()
+        _approbations[ident] = {"nom": nom, "nombre": nombre, "etat": "attente",
+                                "fin": time.time() + APPROBATION_VALIDITE,
+                                "agent": agent, "ip": _adresse_client() or ""}
+    session["approbation"] = ident
+    notifier_compte(nom, "Connexion à CodeLab ?",
+                    f"{agent} demande à entrer sur ton compte. Touche pour répondre.",
+                    url="/approuver/" + ident, etiquette="approbation", urgence="high")
+    journaliser("connexion", qui=nom, action="demande d'approbation envoyée",
+                ip=_adresse_client())
+    return nombre
+
+
+def _approbation_du_compte(ident):
+    """La demande en attente de ce compte, ou None (inconnue, expiree, d'un
+    autre compte : la meme reponse)."""
+    with _approbations_verrou:
+        _oublier_les_approbations_finies()
+        a = _approbations.get(ident)
+    if not a or a["nom"] != utilisateur_courant() or a["etat"] != "attente":
+        return None
+    return a
+
+
+@flask_app.get("/approuver/<ident>")
+@require_auth
+def page_approbation(ident):
+    """La page qu'ouvre la notification, sur l'appareil deja connecte."""
+    a = _approbation_du_compte(ident)
+    esc = _echapper
+    if a:
+        choix = [a["nombre"]]
+        while len(choix) < 3:
+            leurre = 10 + secrets.randbelow(90)
+            if leurre not in choix:
+                choix.append(leurre)
+        secrets.SystemRandom().shuffle(choix)
+        texte = ("<b>" + esc(a["agent"]) + "</b> demande à entrer sur ton compte. "
+                 "Si c'est toi, touche le nombre affiché sur son écran.")
+        boutons = "".join(f'<button class="b n" type="button" data-n="{n}">{n}</button>'
+                          for n in choix)
+        corps = ('<div class="r n3">' + boutons + '</div>'
+                 '<div class="r"><button class="b" type="button" id="non">Ce n’est pas moi'
+                 '</button></div><p id="fin" hidden></p>')
+        script = ('<script>(function(){var j=' + _json_dans_un_script(jeton_session())
+                  + ',id=' + _json_dans_un_script(ident) + ';'
+                  'function envoyer(c){document.querySelectorAll("button").forEach(function(b){'
+                  'b.disabled=true;});fetch("/api/approbations/"+encodeURIComponent(id),'
+                  '{method:"POST",credentials:"same-origin",headers:{"Content-Type":'
+                  '"application/json","X-CodeLab-Jeton":j},body:JSON.stringify(c)})'
+                  '.then(function(r){return r.json();}).then(function(d){var f='
+                  'document.getElementById("fin");f.hidden=false;f.textContent=d.message||'
+                  'd.error||"";}).catch(function(){});}'
+                  'document.querySelectorAll("[data-n]").forEach(function(b){b.onclick='
+                  'function(){envoyer({nombre:+b.dataset.n});};});'
+                  'document.getElementById("non").onclick=function(){envoyer({refuser:true});};'
+                  '})();</script>')
+    else:
+        texte = "Cette demande n’est plus valable : elle a expiré ou a déjà reçu une réponse."
+        corps = '<div class="r"><a class="b p" href="/">Ouvrir CodeLab</a></div>'
+        script = ""
+    page = ('<!doctype html><html lang="fr"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<title>Connexion à approuver · CodeLab</title>'
+            '<link rel="stylesheet" href="/theme.css">'
+            '<style>body{margin:0;min-height:100vh;display:grid;place-items:center;'
+            'background:var(--bg);color:var(--txt);font:15px/1.5 -apple-system,'
+            'BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}.c{background:var(--surface);'
+            'border-radius:22px;padding:28px 26px;max-width:400px;margin:16px}'
+            'h1{font-size:19px;margin:0 0 8px}p{color:var(--dim);margin:0 0 20px}'
+            '.r{display:flex;gap:10px;justify-content:center;margin-top:12px}'
+            '.b{font:inherit;font-weight:700;padding:10px 18px;border-radius:12px;'
+            'border:1px solid var(--line);background:var(--surface);color:var(--txt);'
+            'text-decoration:none;cursor:pointer}.n{font-size:26px;min-width:76px;'
+            'min-height:64px}.p{background:var(--accent);border-color:var(--accent);'
+            'color:var(--on-accent,#fff)}#fin{margin-top:18px;text-align:center;'
+            'color:var(--txt)}</style></head><body><main class="c">'
+            '<h1>Connexion à approuver</h1><p>' + texte + '</p>' + corps
+            + '</main>' + script + '</body></html>')
+    r = Response(avec_style(page), mimetype="text/html")
+    r.headers["Cache-Control"] = "no-store"
+    return r
+
+
+@flask_app.post("/api/approbations/<ident>")
+@require_auth
+def api_approbation_repondre(ident):
+    """{nombre} pour approuver, {refuser: true} pour refuser. Un mauvais
+    nombre refuse : pas de second essai."""
+    a = _approbation_du_compte(ident)
+    if not a:
+        return jsonify({"error": "Cette demande n'est plus valable."}), 404
+    d = request.get_json(silent=True) or {}
+    nombre = d.get("nombre")
+    bon = (isinstance(nombre, int) and not isinstance(nombre, bool)
+           and secrets.compare_digest(str(nombre), str(a["nombre"])))
+    with _approbations_verrou:
+        a["etat"] = "approuvee" if bon and not d.get("refuser") else "refusee"
+    journaliser("connexion", qui=a["nom"], ip=_adresse_client(),
+                action=("connexion approuvée depuis un autre appareil" if a["etat"] == "approuvee"
+                        else "connexion refusée depuis un autre appareil"))
+    if a["etat"] == "approuvee":
+        return jsonify({"ok": True, "message": "C'est fait : l'autre appareil entre."})
+    return jsonify({"ok": True, "message": "Connexion refusée. Si ce n'était pas toi, "
+                                           "change ton mot de passe."})
+
+
+@flask_app.post("/login/second-facteur/appareil")
+def login_facteur_appareil():
+    """La page de connexion attend la reponse : 202 tant qu'elle n'est pas
+    venue, la session si elle est approuvee."""
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
+    nom = nom_en_attente()
+    ident = session.get("approbation") or ""
+    with _approbations_verrou:
+        _oublier_les_approbations_finies()
+        a = _approbations.get(ident)
+    if not nom or not a or a["nom"] != nom:
+        session.pop("approbation", None)
+        return jsonify({"error": "La demande a expiré. Recommence la connexion.",
+                        "expiree": True}), 400
+    if a["etat"] == "attente":
+        return jsonify({"attente": True}), 202
+    with _approbations_verrou:
+        _approbations.pop(ident, None)
+    session.pop("approbation", None)
+    if a["etat"] != "approuvee":
+        register_failed_attempt()
+        session.pop("facteur_attente", None)
+        journaliser("echec", qui=nom, motif="connexion refusée sur un autre appareil",
+                    ip=_adresse_client())
+        return jsonify({"error": "Connexion refusée sur ton autre appareil."}), 403
+    session.pop("facteur_attente", None)
+    session.pop("moyen_presente", None)
+    noter_dernier_moyen(nom, MOYEN_APPAREIL)
+    return _ouvrir_session_utilisateur(nom)
 
 
 def _lever_suspension_code_mail(nom):
