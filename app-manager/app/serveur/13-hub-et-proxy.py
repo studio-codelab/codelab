@@ -200,9 +200,25 @@ def disposition_propre(elements):
     return propres, None
 
 
+# LA DISPOSITION DU HUB EST PROPRE A L'APPAREIL. Vecu : « Une configuration
+# de l'apparence doit etre propre a un appareil ». Le theme, la couleur et la
+# forme des tuiles l'etaient deja (cookie et stockage du navigateur) ; la
+# disposition des widgets suivait le compte, et la ranger sur le telephone
+# derangeait l'ordinateur. Elle se range maintenant sous l'identifiant de
+# l'appareil (COOKIE_APPAREIL, 04-requetes). Un appareil qui n'en a pas
+# encore part de celle du compte -- la derniere rangee avant ce changement,
+# ou celle de depart --, puis garde la sienne.
+def _cle_disposition():
+    appareil = appareil_du_navigateur()
+    return "hub_disposition:" + appareil if appareil else "hub_disposition"
+
+
 def disposition_du_compte():
-    """La disposition enregistree, ou celle de depart."""
-    elements = lire_preference("hub_disposition")
+    """La disposition de cet appareil, sinon celle du compte, sinon celle de
+    depart."""
+    elements = lire_preference(_cle_disposition())
+    if not isinstance(elements, list):
+        elements = lire_preference("hub_disposition")
     if not isinstance(elements, list):
         # Serveur et Activite ne tiennent que chez l'administrateur ; le
         # filtre des widgets permis ci-dessous les retire pour les autres.
@@ -276,7 +292,7 @@ def api_disposition_modifier():
                                          .get("elements"))
     if erreur:
         return jsonify({"error": erreur}), 400
-    ecrire_preference("hub_disposition", propres)
+    ecrire_preference(_cle_disposition(), propres)
     return jsonify({"ok": True, "elements": propres})
 
 

@@ -91,7 +91,9 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
       mosaïque défile seule. Chaque tuile porte un « − » (retirer un widget, masquer une
       application) ; un widget a ses tailles (petit, moyen, grand) ; au clavier, des flèches
       apparaissent sur la tuile qui a le focus. La disposition (applications et widgets mêlés) est
-      gardée côté serveur, d'un appareil à l'autre. Widgets en haut, chaque tuile reste dans sa
+      gardée côté serveur, **propre à chaque appareil** : ranger le hub du téléphone ne change pas
+      celui de l'ordinateur. Un nouvel appareil part de la dernière disposition du compte. Le
+      thème, la couleur et la forme des tuiles sont, eux aussi, propres au navigateur. Widgets en haut, chaque tuile reste dans sa
       grille.
     - **Galerie de widgets** (« + » en mode Modifier) : seulement des widgets utiles, propres au hub
       ou à une application du hub, chacun avec ses tailles en aperçu :
