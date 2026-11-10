@@ -1918,6 +1918,32 @@ def test_a_la_une_montre_un_apercu_de_la_derniere_application_ouverte(deux_espac
 
 
 
+def test_la_disposition_du_hub_est_propre_a_chaque_appareil(deux_espaces):
+    """Vecu : « Une configuration de l'apparence doit etre propre a un
+    appareil ». Ranger le hub sur le telephone ne derange plus
+    l'ordinateur : chaque appareil (cookie codelab-appareil) garde la
+    sienne ; un appareil neuf part de celle du compte."""
+    ordi = app.flask_app.test_client()
+    tel = app.flask_app.test_client()
+    for c in (ordi, tel):
+        c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+        c.get("/api/hub/disposition")
+        assert c.get_cookie(app.COOKIE_APPAREIL), "chaque navigateur a son identifiant"
+    assert ordi.get_cookie(app.COOKIE_APPAREIL).value != tel.get_cookie(app.COOKIE_APPAREIL).value
+    sur_ordi = [{"t": "w", "id": "etat", "taille": "petit"}, {"t": "a", "id": "public"}]
+    sur_tel = [{"t": "a", "id": "public"}]
+    assert ordi.put("/api/hub/disposition", json={"elements": sur_ordi}).status_code == 200
+    assert tel.put("/api/hub/disposition", json={"elements": sur_tel}).status_code == 200
+    assert ordi.get("/api/hub/disposition").get_json()["elements"] == sur_ordi
+    assert tel.get("/api/hub/disposition").get_json()["elements"] == sur_tel
+    # Avant ce changement, la disposition suivait le compte : un appareil
+    # neuf la reprend comme point de depart.
+    app.ecrire_preference("hub_disposition", sur_ordi, app.NOM_ADMIN)
+    neuf = app.flask_app.test_client()
+    neuf.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    assert neuf.get("/api/hub/disposition").get_json()["elements"] == sur_ordi
+
+
 def test_le_hub_se_compose_par_compte(deux_espaces):
     """Le hub Bento se compose : tuiles et widgets dans l'ordre voulu, chaque
     widget a sa taille. Peu de widgets, sur le hub ou sur une application ;

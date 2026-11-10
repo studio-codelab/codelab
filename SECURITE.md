@@ -281,6 +281,9 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 2. Un code (connexion, vérification, réinitialisation) n'est stocké que sous forme d'empreinte. Il
    sert une fois, expire et accepte 5 essais au plus.
 3. Un code ne part que vers une destination enregistrée sur le compte, après un mot de passe juste.
+   De même pour une demande d'approbation : elle ne part que vers les appareils connectés du compte.
+   Elle s'accepte en touchant le nombre affiché sur l'écran de connexion, qui n'est pas dans la
+   notification ; un mauvais nombre la refuse.
 4. La boîte mail seule ne permet jamais de prendre un compte.
 5. Un compte qui a déjà un facteur ne peut pas en enregistrer un nouveau sur le seul mot de passe.
 6. Au plus 5 échecs par 5 minutes et par IP sur toutes les routes de connexion.
@@ -315,7 +318,7 @@ Sans lui, les réglages chiffrés deviennent illisibles.
     sur `127.0.0.1`. `X-Forwarded-For`, que tailscaled remplace par l'adresse du visiteur, n'y est
     cru que pour la limite des essais, et nulle part ailleurs.
 13. Toute route qui modifie quelque chose exige le jeton anti-falsification de la session, sauf les
-    routes de connexion et d'invitation, et celle du tournage, qui n'a pas de session et se prouve
+    routes de connexion et d'invitation (Face ID compris), et celle du tournage, qui n'a pas de session et se prouve
     par la clé en en-tête (12 ter).
 14. Pas d'inscription libre.
 15. Le contrôle des droits se fait côté serveur, jamais seulement dans l'interface.

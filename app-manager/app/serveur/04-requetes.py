@@ -677,8 +677,8 @@ JETON_EXEMPTS = {
     "login_submit", "login_second_facteur",
     "login_passkey_options", "login_passkey",
     "login_inscription_passkey_options", "login_inscription_passkey",
-    "login_facteur_passkey_options", "login_facteur_passkey",
-    "invitation_accepter",
+    "login_facteur_passkey_options", "login_facteur_passkey", "login_facteur_appareil",
+    "invitation_accepter", "invitation_passkey_options", "invitation_passkey",
     # Le proxy transporte les requetes des applications hebergees : leurs
     # formulaires ne connaissent pas le jeton du panneau, et n'ont aucune
     # raison de le connaitre.

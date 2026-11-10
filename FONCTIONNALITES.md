@@ -91,7 +91,9 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
       mosaïque défile seule. Chaque tuile porte un « − » (retirer un widget, masquer une
       application) ; un widget a ses tailles (petit, moyen, grand) ; au clavier, des flèches
       apparaissent sur la tuile qui a le focus. La disposition (applications et widgets mêlés) est
-      gardée côté serveur, d'un appareil à l'autre. Widgets en haut, chaque tuile reste dans sa
+      gardée côté serveur, **propre à chaque appareil** : ranger le hub du téléphone ne change pas
+      celui de l'ordinateur. Un nouvel appareil part de la dernière disposition du compte. Le
+      thème, la couleur et la forme des tuiles sont, eux aussi, propres au navigateur. Widgets en haut, chaque tuile reste dans sa
       grille.
     - **Galerie de widgets** (« + » en mode Modifier) : seulement des widgets utiles, propres au hub
       ou à une application du hub, chacun avec ses tailles en aperçu :
@@ -340,6 +342,18 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 Détails : [`SECURITE.md`](SECURITE.md) et [`app-manager/README.md`](app-manager/README.md).
 
 - **Deux rôles** : administrateur et utilisateur.
+- **Valider sur mon téléphone** (comptes utilisateurs) : sur un ordinateur sans Face ID ni Windows
+  Hello, le second facteur est un appui sur un appareil déjà connecté et abonné aux notifications.
+  Après le mot de passe, l'écran affiche un nombre à deux chiffres ; sur le téléphone, la
+  notification ouvre une page qui en propose trois. Le bon nombre ouvre la session, et un mauvais la
+  refuse. *Ce n'est pas moi* refuse aussi. La demande vaut deux minutes, une fois. Ce moyen apparaît
+  dès qu'un appareil du compte a activé les notifications (Paramètres > Apparence).
+- **Créer son compte avec Face ID** (iPhone, iPad, Mac, Android) : sur la page d'invitation, après
+  le nom, le bouton *Créer mon compte avec Face ID* (ou *avec ton empreinte*) crée le compte et sa
+  clé d'accès d'un geste, sans mot de passe à choisir ni QR code. Il n'apparaît qu'en HTTPS, par un
+  nom de domaine, par exemple l'adresse Tailscale : en `http://` sur une adresse IP, le navigateur
+  refuse les clés d'accès. Le compte n'a pas de mot de passe connu ; *Mot de passe oublié* en donne
+  un à qui en veut.
 - **Appareils connectés** (*Paramètres > Sécurité*, chaque compte) : où le compte est ouvert (« Safari
   sur iPhone », adresse, dernière activité, « Cet appareil »), un bouton pour déconnecter chacun, et
   « Déconnecter les autres appareils ». Téléphone perdu : on le coupe sans changer de mot de passe.
@@ -653,6 +667,9 @@ Détails : [`app-manager/vps/README.md`](app-manager/vps/README.md).
   - l'administration reste réservée au réseau local.
 
   *Déconnecter la machine* la retire du réseau Tailscale et oublie la clé.
+
+  Accès allumé, **les liens d'invitation portent l'adresse Tailscale** : un nouvel utilisateur
+  peut l'ouvrir de n'importe où, même si l'invitation part du réseau local.
 
 ## 11. Installation et mise à jour
 

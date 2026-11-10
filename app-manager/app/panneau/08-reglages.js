@@ -21,6 +21,15 @@ async function chargerMonCompte(){
   $('mail-confirmation').style.display =
     (monCompte.email && !monCompte.email_verifie) ? 'block' : 'none';
 }
+/* Un compte cree avec Face ID n'a pas de mot de passe connu : la carte le
+   dit, et dit comment en choisir un (voir « creer son compte avec Face
+   ID », 10-routes). */
+async function peindreMotDePasse(){
+  try{
+    const d=await (await fetch('/api/mon-compte')).json();
+    $('mdp-sans').style.display = d.sans_mot_de_passe ? 'block' : 'none';
+  }catch(e){}
+}
 function mailMessage(texte, erreur){
   $('mail-err').style.display = erreur ? 'block' : 'none';
   $('mail-msg').style.display = (!erreur && texte) ? 'block' : 'none';
@@ -410,9 +419,20 @@ function peindreTunnel(d){
   const b=$('tunnel-bascule');
   b.checked=d.actif; b.disabled=d.etat==='indisponible' || d.etat==='sans-origines';
   $('tunnel-etat').textContent=TUNNEL_ETATS[d.etat] || '';
-  /* Le message de tailscale lui-meme : il dit quoi activer dans la console. */
-  $('tunnel-erreur').style.display=d.erreur ? 'block' : 'none';
-  $('tunnel-erreur').textContent=d.erreur || '';
+  /* Le message de tailscale lui-meme : il dit quoi activer dans la console.
+     Un lien d'autorisation (login.tailscale.com seulement) devient
+     cliquable ; le reste reste du texte. */
+  const erreur=$('tunnel-erreur');
+  erreur.style.display=d.erreur ? 'block' : 'none';
+  erreur.textContent=d.erreur || '';
+  const lien=(d.erreur||'').match(/https:\/\/login\.tailscale\.com\/[A-Za-z0-9\/?=&._~%-]+/);
+  if(lien){
+    erreur.textContent=d.erreur.slice(0, lien.index);
+    const a=document.createElement('a');
+    a.href=lien[0]; a.target='_blank'; a.rel='noopener noreferrer';
+    a.textContent='Autoriser Funnel dans Tailscale';
+    erreur.appendChild(a);
+  }
   if(document.activeElement!==$('tunnel-nom')) $('tunnel-nom').value=d.nom||'';
   tunnelReseau=d.reseau||'';
   tunnelApercu();
@@ -428,7 +448,7 @@ function peindreTunnel(d){
     if($('tunnel-qr').classList.contains('on')) tunnelQr(true);
   }
   clearTimeout(tunnelRelecture);
-  if(d.actif && (d.etat==='demarrage' || d.etat==='sans-cle')) tunnelRelecture=setTimeout(chargerTunnel, 3000);
+  if(d.actif && d.etat!=='actif' && d.etat!=='arrete') tunnelRelecture=setTimeout(chargerTunnel, 5000);
 }
 async function chargerTunnel(){
   try{

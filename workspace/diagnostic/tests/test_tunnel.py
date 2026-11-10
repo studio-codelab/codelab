@@ -289,7 +289,8 @@ def test_un_refus_de_tailscale_s_affiche_tel_quel_et_sans_danger(funnel, monkeyp
     assert erreur.startswith("Funnel not available; HTTPS must be enabled.")
     assert "\x1b" not in erreur and "\n" not in erreur and len(erreur) <= 300
     js = _lire_source("app-manager/app/panneau/08-reglages.js")
-    assert "$('tunnel-erreur').textContent=d.erreur" in js
+    peindre = js.split("function peindreTunnel")[1].split("\nfunction ")[0]
+    assert "erreur.textContent=d.erreur" in peindre and "innerHTML" not in peindre
 
 
 def test_les_ports_de_funnel_n_ecoutent_que_sur_la_boucle_locale():
@@ -336,3 +337,69 @@ def test_la_carte_montre_l_adresse_finale(funnel):
     js = _lire_source("app-manager/app/panneau/08-reglages.js")
     assert "function tunnelApercu()" in js and "$('tunnel-apercu').textContent=" in js
     assert 'oninput="tunnelApercu()"' in _page_panneau("dashboard.html")
+
+
+def test_funnel_qui_attend_un_accord_montre_le_lien_au_lieu_d_un_delai_depasse(funnel,
+                                                                              monkeypatch):
+    """Vecu : « TimeoutExpired: Command [... 'funnel', '--bg', '--https=443',
+    ...] timed out after 30 seconds ». Funnel pas encore autorise, tailscale
+    affiche un lien vers sa console puis attend : le lien doit arriver dans
+    la carte, et seul ce domaine y devient cliquable."""
+    lien = "https://login.tailscale.com/f/funnel?node=nAbC123CNTRL"
+
+    def attend(cmd, timeout=20, **kw):
+        raise app.subprocess.TimeoutExpired(
+            cmd, timeout, output=("Funnel is not enabled on your tailnet.\n"
+                                   "To enable, visit:\n\n         " + lien + "\n").encode())
+    monkeypatch.setattr(app.subprocess, "run", attend)
+    code, sortie = app._tailscale("funnel", "--bg", "--https=443", "http://127.0.0.1:9011")
+    assert code == -2 and lien in sortie
+    erreur = app._ouvrir_funnel()
+    assert erreur.endswith(lien) and "TimeoutExpired" not in erreur
+    # Un autre domaine reste du texte.
+    monkeypatch.setattr(app, "_tailscale",
+                        lambda *a, **k: (1, "visit https://evil.example/f/funnel"))
+    assert "Tailscale attend" not in app._ouvrir_funnel()
+    js = _lire_source("app-manager/app/panneau/08-reglages.js")
+    assert "/https:\\/\\/login\\.tailscale\\.com\\/" in js and "a.textContent=" in js
+    assert "innerHTML" not in js.split("function peindreTunnel")[1].split("\nfunction ")[0]
+
+
+def test_un_funnel_refuse_n_est_pas_reessaye_a_chaque_tour(funnel, monkeypatch):
+    """Chaque essai peut attendre 30 s, verrou tenu : une fois par minute,
+    ou tout de suite si l'on rallume l'interrupteur."""
+    essais = []
+    monkeypatch.setitem(app._tunnel, "funnel", False)
+    monkeypatch.setitem(app._tunnel, "essai_funnel", 0)
+    monkeypatch.setattr(app, "_ouvrir_funnel", lambda: essais.append(1) or "refus")
+    etat = {"BackendState": "Running", "Self": {"HostName": "codelab", "DNSName": HOTE + "."}}
+    app._tour_connecte(etat)
+    app._tour_connecte(etat)
+    assert len(essais) == 1
+
+
+def test_le_lien_d_invitation_porte_l_adresse_tailscale(funnel, monkeypatch):
+    """Vecu : « Le lien partage aux nouveaux utilisateurs doit embarquer
+    l'url tailscale configure si active. » L'administrateur invite depuis le
+    reseau local : un lien fait sur l'adresse locale ne s'ouvrirait pas de
+    l'exterieur."""
+    monkeypatch.delenv("APP_MANAGER_PUBLIC_URL", raising=False)
+    app.ecrire_parametre("tunnel", {"actif": True})
+    with app.flask_app.test_request_context("/", base_url="http://192.168.1.20:9001"):
+        assert app.lien_invitation("abc") == "https://%s/invitation/abc" % HOTE
+    # Au redemarrage, avant que tailscaled reponde : la derniere adresse
+    # annoncee, revalidee.
+    monkeypatch.setitem(app._tunnel, "hote", "")
+    app.ecrire_parametre("tunnel", {"actif": True, "annoncee": "https://" + HOTE})
+    assert app.adresse_publique() == "https://" + HOTE
+    app.ecrire_parametre("tunnel", {"actif": True, "annoncee": "https://evil.example"})
+    assert app.adresse_publique() == ""
+    # Acces eteint : plus l'adresse Tailscale.
+    monkeypatch.setitem(app._tunnel, "hote", HOTE)
+    app.ecrire_parametre("tunnel", {"actif": False, "annoncee": "https://" + HOTE})
+    with app.flask_app.test_request_context("/", base_url="http://192.168.1.20:9001"):
+        assert app.lien_invitation("abc") == "http://192.168.1.20:9001/invitation/abc"
+    # Une adresse publique fixee a la main garde la priorite.
+    app.ecrire_parametre("tunnel", {"actif": True})
+    monkeypatch.setenv("APP_MANAGER_PUBLIC_URL", "https://codelab.example.org/")
+    assert app.adresse_publique() == "https://codelab.example.org"

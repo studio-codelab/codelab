@@ -1194,6 +1194,73 @@ def test_accepter_l_invitation_cree_le_compte_verifie_et_ouvre_la_session(invita
 
 
 
+def test_l_invitation_cree_le_compte_avec_face_id_sans_mot_de_passe(invitations, monkeypatch):
+    """Vecu : « proposer de configurer le passkey automatiquement sur apple
+    et android, sans avoir a utiliser le qr code ou renseigner a la main le
+    mot de passe ». Le compte nait avec sa cle ; son mot de passe, aleatoire,
+    n'est connu de personne et n'ouvre rien seul (regle 1)."""
+    _inscription_face_id(monkeypatch)
+    c, partis, h = invitations
+    c.post("/api/invitations", json={"email": "paul@example.com"}, headers=h)
+    jeton = _jeton_du_lien(partis)
+    c.post("/logout")
+    r = c.post("/invitation/%s/passkey/options" % jeton, json={"nom": "paul"})
+    assert r.status_code == 200, r.data
+    assert r.get_json()["authenticatorSelection"]["userVerification"] == "required"
+    # Rien n'existe avant la cle verifiee.
+    assert "paul" not in app.lire_utilisateurs()
+    r = c.post("/invitation/%s/passkey" % jeton, json={"credential": {}, "nom": "iPhone"})
+    assert r.status_code == 200, r.data
+    compte = app.lire_utilisateurs()["paul"]
+    assert compte["sans_mot_de_passe"] is True and compte["email_verifie"] is True
+    assert len(app.passkeys_du_compte("paul")) == 1
+    assert c.get("/api/mon-compte").get_json()["sans_mot_de_passe"] is True
+    # Le lien ne sert qu'une fois, par ce chemin comme par l'autre.
+    c.post("/logout")
+    assert c.post("/invitation/%s/passkey/options" % jeton, json={"nom": "autre"}).status_code == 404
+    assert c.post("/invitation/" + jeton, json={"nom": "autre",
+                  "mot_de_passe": "mot-de-passe-long"}).status_code == 404
+
+
+def test_sans_defi_ni_invitation_valide_face_id_ne_cree_rien(invitations, monkeypatch):
+    """La cle n'est acceptee que pour la creation demandee juste avant, sur
+    le meme lien : ni un appel direct, ni un lien invente."""
+    _inscription_face_id(monkeypatch)
+    c, partis, h = invitations
+    c.post("/api/invitations", json={"email": "paul@example.com"}, headers=h)
+    jeton = _jeton_du_lien(partis)
+    c.post("/logout")
+    # Sans les options d'abord : aucune creation en attente.
+    assert c.post("/invitation/%s/passkey" % jeton, json={"credential": {}}).status_code == 400
+    assert c.post("/invitation/%s/passkey/options" % ("x" * 43),
+                  json={"nom": "intrus"}).status_code == 404
+    # Un nom deja pris ou reserve ne passe pas.
+    assert c.post("/invitation/%s/passkey/options" % jeton,
+                  json={"nom": app.NOM_ADMIN}).status_code == 400
+    assert "paul" not in app.lire_utilisateurs() and not app.passkeys_du_compte("intrus")
+
+
+def test_face_id_a_l_invitation_suit_les_memes_conditions_que_partout(invitations, monkeypatch):
+    """En HTTP par une adresse IP, le navigateur refuserait : le serveur le
+    dit plutot que d'ouvrir une creation vouee a l'echec."""
+    pytest.importorskip("webauthn")
+    monkeypatch.setattr(app, "passkey_contexte",
+                        lambda: ("", "", "Les clés d'accès exigent une connexion HTTPS."))
+    c, partis, h = invitations
+    c.post("/api/invitations", json={"email": "paul@example.com"}, headers=h)
+    jeton = _jeton_du_lien(partis)
+    c.post("/logout")
+    r = c.post("/invitation/%s/passkey/options" % jeton, json={"nom": "paul"})
+    assert r.status_code == 400 and "HTTPS" in r.get_json()["error"]
+
+
+def test_choisir_un_mot_de_passe_retire_la_mention_sans_mot_de_passe(monkeypatch):
+    src = _source_du_panneau()
+    assert src.count('compte.pop("sans_mot_de_passe", None)') == 3
+    page = _lire_source("app-manager/app/login.html")
+    assert "function invitationPasskey()" in page and 'id="inv-pk"' in page
+
+
 def test_un_lien_d_invitation_invente_ne_cree_rien(invitations):
     c, _, _ = invitations
     c.post("/logout")
@@ -2638,3 +2705,100 @@ def test_un_compte_ajoute_et_retire_son_application_d_authentification(comptes_m
         s["ouverte"] = int(time.time()) - 3600
     r = c.post("/api/mon-compte/totp/preparer")
     assert r.status_code == 403 and r.get_json().get("reconnexion")
+
+
+# ------------------------- valider sur mon telephone -------------------------
+
+@pytest.fixture
+def telephone(deux_espaces, monkeypatch):
+    """marie a un telephone deja connecte et abonne aux notifications."""
+    envoyes = []
+    monkeypatch.setattr(app, "abonnements_push", lambda compte: [{"id": 1, "sid": "s"}]
+                        if compte == "marie" else [])
+    monkeypatch.setattr(app, "cle_vapid", lambda: object())
+    monkeypatch.setattr(app, "notifier_compte",
+                        lambda compte, titre, texte, url="/", **k: envoyes.append(
+                            {"compte": compte, "texte": texte, "url": url}) or 1)
+    app._approbations.clear()
+    tel = app.flask_app.test_client()
+    with tel.session_transaction() as s:
+        s.update(authed=True, role=app.ROLE_UTILISATEUR, utilisateur="marie",
+                 ouverte=int(time.time()), jeton="jeton-du-telephone")
+    return deux_espaces, tel, envoyes
+
+
+def _demande(c):
+    r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"})
+    d = r.get_json()
+    assert r.status_code == 401 and d["moyen"] == app.MOYEN_APPAREIL, d
+    return d["nombre"]
+
+
+def test_valider_sur_mon_telephone_ouvre_la_session_avec_le_bon_nombre(telephone):
+    """Vecu : « une solution pour double authentification simplifie autant
+    que faceid hors apple ». Le mot de passe sur l'ordinateur, puis un appui
+    sur le telephone deja connecte : le nombre affiche sur l'ecran de
+    connexion, et seulement lui."""
+    ordi, tel, envoyes = telephone
+    nombre = _demande(ordi)
+    assert len(envoyes) == 1 and envoyes[0]["compte"] == "marie"
+    # Le nombre n'est pas dans la notification : il faut voir l'ecran.
+    assert str(nombre) not in envoyes[0]["texte"]
+    ident = envoyes[0]["url"].rsplit("/", 1)[1]
+    assert ordi.post("/login/second-facteur/appareil").status_code == 202
+    page = tel.get("/approuver/" + ident).get_data(as_text=True)
+    assert page.count('data-n="') == 3 and 'data-n="%d"' % nombre in page
+    r = tel.post("/api/approbations/" + ident, json={"nombre": nombre})
+    assert r.status_code == 200, r.data
+    r = ordi.post("/login/second-facteur/appareil")
+    assert r.status_code == 200, r.data
+    with ordi.session_transaction() as s:
+        assert s.get("authed") and s.get("utilisateur") == "marie"
+    # La demande ne sert qu'une fois.
+    assert tel.post("/api/approbations/" + ident, json={"nombre": nombre}).status_code == 404
+
+
+def test_un_mauvais_nombre_refuse_la_connexion_sans_second_essai(telephone):
+    ordi, tel, envoyes = telephone
+    nombre = _demande(ordi)
+    ident = envoyes[0]["url"].rsplit("/", 1)[1]
+    faux = 10 if nombre != 10 else 11
+    assert tel.post("/api/approbations/" + ident, json={"nombre": faux}).status_code == 200
+    assert tel.post("/api/approbations/" + ident, json={"nombre": nombre}).status_code == 404
+    assert ordi.post("/login/second-facteur/appareil").status_code == 403
+    with ordi.session_transaction() as s:
+        assert not s.get("authed")
+
+
+def test_seul_un_appareil_du_compte_repond_et_seul_le_demandeur_entre(telephone):
+    """Un autre compte ne voit ni ne valide la demande ; et l'approbation
+    n'ouvre que le navigateur qui a donne le mot de passe."""
+    ordi, tel, envoyes = telephone
+    nombre = _demande(ordi)
+    ident = envoyes[0]["url"].rsplit("/", 1)[1]
+    autre = app.flask_app.test_client()
+    with autre.session_transaction() as s:
+        s.update(authed=True, role=app.ROLE_UTILISATEUR, utilisateur="paul",
+                 ouverte=int(time.time()), jeton="j")
+    app.ecrire_utilisateurs({**app.lire_utilisateurs(), "paul": {
+        "sel": "ee" * 16, "hash": "x", "projets": [], "cree": 0}})
+    assert autre.post("/api/approbations/" + ident, json={"nombre": nombre}).status_code == 404
+    assert "plus valable" in autre.get("/approuver/" + ident).get_data(as_text=True)
+    assert tel.post("/api/approbations/" + ident, json={"nombre": nombre}).status_code == 200
+    intrus = app.flask_app.test_client()
+    assert intrus.post("/login/second-facteur/appareil").status_code == 400
+    with intrus.session_transaction() as s:
+        assert not s.get("authed")
+
+
+def test_valider_sur_mon_telephone_n_est_propose_qu_avec_un_appareil_abonne(telephone,
+                                                                             monkeypatch):
+    ordi, _, envoyes = telephone
+    monkeypatch.setattr(app, "abonnements_push", lambda compte: [])
+    r = ordi.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"})
+    assert app.MOYEN_APPAREIL not in (r.get_json().get("moyens") or [])
+    assert not envoyes
+    # Jamais pour l'administrateur : ses connexions restent au reseau local,
+    # avec ses propres facteurs.
+    monkeypatch.setattr(app, "abonnements_push", lambda compte: [{"id": 1, "sid": "s"}])
+    assert not app.approbation_possible(app.NOM_ADMIN)

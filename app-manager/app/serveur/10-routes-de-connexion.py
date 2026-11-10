@@ -283,6 +283,8 @@ def _second_facteur_utilisateur(d, nom, compte):
     # autre methode » -- sauf s'il est le dernier moyen utilise.
     if passkeys_du_compte(nom) and passkey_utilisable():
         moyens = moyens + [MOYEN_PASSKEY]
+    if approbation_possible(nom):
+        moyens = moyens + [MOYEN_APPAREIL]
     moyens = dernier_moyen_en_tete(moyens, compte.get("dernier_moyen"))
     code = d.get("code")
     # Sans aucun moyen (ni secret, ni code envoye), un code tape ne prouve
@@ -322,6 +324,15 @@ def _second_facteur_utilisateur(d, nom, compte):
             attendre_second_facteur(nom)
             return jsonify({"totp": True, "second_facteur": True,
                             "moyen": moyen, "moyens": moyens}), 401
+        if moyen == MOYEN_APPAREIL:
+            # Une notification part : compte comme une tentative, comme le
+            # code par mail -- sinon ce formulaire ferait sonner les
+            # telephones en boucle a qui connait un mot de passe.
+            register_failed_attempt()
+            attendre_second_facteur(nom)
+            nombre = demander_approbation(nom)
+            return jsonify({"totp": True, "second_facteur": True, "moyen": moyen,
+                            "moyens": moyens, "nombre": nombre}), 401
         reponse = {"totp": True, "moyen": moyen, "moyens": moyens}
         if moyen == MOYEN_TOTP:
             # Rien ne part : choisir l'application ne coute pas d'essai. Vecu :
@@ -433,7 +444,7 @@ def dernier_moyen_en_tete(moyens, dernier):
 def noter_dernier_moyen(qui, moyen):
     """Retient la methode qui vient d'ouvrir la session. Jamais d'exception :
     la connexion est faite, le souvenir n'est qu'un confort."""
-    if moyen not in (MOYEN_EMAIL, MOYEN_TOTP, MOYEN_PASSKEY):
+    if moyen not in (MOYEN_EMAIL, MOYEN_TOTP, MOYEN_PASSKEY, MOYEN_APPAREIL):
         return
     try:
         if qui == NOM_ADMIN:
@@ -565,6 +576,197 @@ def login_facteur_passkey():
         return erreur
     session.pop("facteur_attente", None)
     return _ouvrir_session_par_cle(proprietaire)
+
+
+# ------------------------- valider sur mon telephone -------------------------
+#
+# Vecu : « Trouver une solution pour double authentification simplifie
+# autant que faceid hors apple ». Un ordinateur sans Face ID ni Windows
+# Hello, un navigateur qui ne garde pas les cles : le second facteur devient
+# un appui sur un appareil deja connecte. Apres le mot de passe, une
+# notification part vers les appareils abonnes du compte ; l'ecran de
+# connexion montre un nombre a deux chiffres ; sur le telephone, la page
+# /approuver/<id> en propose trois, et seul le bon ouvre la session.
+# POURQUOI le nombre : sans lui, un appui reflexe sur une notification
+#   inattendue ouvrirait le compte a qui a vole le mot de passe (« fatigue
+#   des notifications »). Le nombre n'est pas dans la notification : il
+#   faut avoir l'ecran de connexion sous les yeux. Un mauvais nombre refuse
+#   la demande, sans second essai.
+# POURQUOI c'est un second facteur : seule une session deja ouverte DE CE
+#   COMPTE approuve (require_auth, meme nom), et la demande ne s'acheve que
+#   dans le navigateur qui a donne le mot de passe (session, attente du
+#   second facteur), en deux minutes, une fois.
+# REGLE : 1 (jamais le mot de passe seul), 3 (la notification ne part que
+#   vers les appareils du compte, apres un mot de passe juste), 6 (une
+#   demande compte comme un essai), 13 (la page de connexion attend sans
+#   session : route exemptee, comme les autres etapes de connexion).
+# DEPEND DE : notifier_compte et abonnements_push (11-notifications), qui ne
+#   visent que les appareils encore connectes ; afficherCode (login.html).
+# ECARTE : approuver d'un simple bouton, sans nombre (voir plus haut) ;
+#   l'administrateur, dont les connexions ne viennent que du reseau local et
+#   gardent leurs propres facteurs.
+APPROBATION_VALIDITE = 120
+_approbations = {}
+_approbations_verrou = threading.Lock()
+
+
+def approbation_possible(nom):
+    """Un appareil de ce compte peut-il recevoir la demande ?"""
+    try:
+        return nom != NOM_ADMIN and bool(abonnements_push(nom)) and cle_vapid() is not None
+    except Exception:                                             # noqa: BLE001
+        return False
+
+
+def _oublier_les_approbations_finies():
+    maintenant = time.time()
+    for ident in [i for i, a in _approbations.items() if a["fin"] <= maintenant]:
+        _approbations.pop(ident, None)
+
+
+def demander_approbation(nom):
+    """Cree la demande, la notifie, et rend le nombre a afficher."""
+    ident = secrets.token_urlsafe(18)
+    nombre = 10 + secrets.randbelow(90)
+    agent = decrire_agent(request.headers.get("User-Agent"))
+    with _approbations_verrou:
+        _oublier_les_approbations_finies()
+        _approbations[ident] = {"nom": nom, "nombre": nombre, "etat": "attente",
+                                "fin": time.time() + APPROBATION_VALIDITE,
+                                "agent": agent, "ip": _adresse_client() or ""}
+    session["approbation"] = ident
+    notifier_compte(nom, "Connexion à CodeLab ?",
+                    f"{agent} demande à entrer sur ton compte. Touche pour répondre.",
+                    url="/approuver/" + ident, etiquette="approbation", urgence="high")
+    journaliser("connexion", qui=nom, action="demande d'approbation envoyée",
+                ip=_adresse_client())
+    return nombre
+
+
+def _approbation_du_compte(ident):
+    """La demande en attente de ce compte, ou None (inconnue, expiree, d'un
+    autre compte : la meme reponse)."""
+    with _approbations_verrou:
+        _oublier_les_approbations_finies()
+        a = _approbations.get(ident)
+    if not a or a["nom"] != utilisateur_courant() or a["etat"] != "attente":
+        return None
+    return a
+
+
+@flask_app.get("/approuver/<ident>")
+@require_auth
+def page_approbation(ident):
+    """La page qu'ouvre la notification, sur l'appareil deja connecte."""
+    a = _approbation_du_compte(ident)
+    esc = _echapper
+    if a:
+        choix = [a["nombre"]]
+        while len(choix) < 3:
+            leurre = 10 + secrets.randbelow(90)
+            if leurre not in choix:
+                choix.append(leurre)
+        secrets.SystemRandom().shuffle(choix)
+        texte = ("<b>" + esc(a["agent"]) + "</b> demande à entrer sur ton compte. "
+                 "Si c'est toi, touche le nombre affiché sur son écran.")
+        boutons = "".join(f'<button class="b n" type="button" data-n="{n}">{n}</button>'
+                          for n in choix)
+        corps = ('<div class="r n3">' + boutons + '</div>'
+                 '<div class="r"><button class="b" type="button" id="non">Ce n’est pas moi'
+                 '</button></div><p id="fin" hidden></p>')
+        script = ('<script>(function(){var j=' + _json_dans_un_script(jeton_session())
+                  + ',id=' + _json_dans_un_script(ident) + ';'
+                  'function envoyer(c){document.querySelectorAll("button").forEach(function(b){'
+                  'b.disabled=true;});fetch("/api/approbations/"+encodeURIComponent(id),'
+                  '{method:"POST",credentials:"same-origin",headers:{"Content-Type":'
+                  '"application/json","X-CodeLab-Jeton":j},body:JSON.stringify(c)})'
+                  '.then(function(r){return r.json();}).then(function(d){var f='
+                  'document.getElementById("fin");f.hidden=false;f.textContent=d.message||'
+                  'd.error||"";}).catch(function(){});}'
+                  'document.querySelectorAll("[data-n]").forEach(function(b){b.onclick='
+                  'function(){envoyer({nombre:+b.dataset.n});};});'
+                  'document.getElementById("non").onclick=function(){envoyer({refuser:true});};'
+                  '})();</script>')
+    else:
+        texte = "Cette demande n’est plus valable : elle a expiré ou a déjà reçu une réponse."
+        corps = '<div class="r"><a class="b p" href="/">Ouvrir CodeLab</a></div>'
+        script = ""
+    page = ('<!doctype html><html lang="fr"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<title>Connexion à approuver · CodeLab</title>'
+            '<link rel="stylesheet" href="/theme.css">'
+            '<style>body{margin:0;min-height:100vh;display:grid;place-items:center;'
+            'background:var(--bg);color:var(--txt);font:15px/1.5 -apple-system,'
+            'BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}.c{background:var(--surface);'
+            'border-radius:22px;padding:28px 26px;max-width:400px;margin:16px}'
+            'h1{font-size:19px;margin:0 0 8px}p{color:var(--dim);margin:0 0 20px}'
+            '.r{display:flex;gap:10px;justify-content:center;margin-top:12px}'
+            '.b{font:inherit;font-weight:700;padding:10px 18px;border-radius:12px;'
+            'border:1px solid var(--line);background:var(--surface);color:var(--txt);'
+            'text-decoration:none;cursor:pointer}.n{font-size:26px;min-width:76px;'
+            'min-height:64px}.p{background:var(--accent);border-color:var(--accent);'
+            'color:var(--on-accent,#fff)}#fin{margin-top:18px;text-align:center;'
+            'color:var(--txt)}</style></head><body><main class="c">'
+            '<h1>Connexion à approuver</h1><p>' + texte + '</p>' + corps
+            + '</main>' + script + '</body></html>')
+    r = Response(avec_style(page), mimetype="text/html")
+    r.headers["Cache-Control"] = "no-store"
+    return r
+
+
+@flask_app.post("/api/approbations/<ident>")
+@require_auth
+def api_approbation_repondre(ident):
+    """{nombre} pour approuver, {refuser: true} pour refuser. Un mauvais
+    nombre refuse : pas de second essai."""
+    a = _approbation_du_compte(ident)
+    if not a:
+        return jsonify({"error": "Cette demande n'est plus valable."}), 404
+    d = request.get_json(silent=True) or {}
+    nombre = d.get("nombre")
+    bon = (isinstance(nombre, int) and not isinstance(nombre, bool)
+           and secrets.compare_digest(str(nombre), str(a["nombre"])))
+    with _approbations_verrou:
+        a["etat"] = "approuvee" if bon and not d.get("refuser") else "refusee"
+    journaliser("connexion", qui=a["nom"], ip=_adresse_client(),
+                action=("connexion approuvée depuis un autre appareil" if a["etat"] == "approuvee"
+                        else "connexion refusée depuis un autre appareil"))
+    if a["etat"] == "approuvee":
+        return jsonify({"ok": True, "message": "C'est fait : l'autre appareil entre."})
+    return jsonify({"ok": True, "message": "Connexion refusée. Si ce n'était pas toi, "
+                                           "change ton mot de passe."})
+
+
+@flask_app.post("/login/second-facteur/appareil")
+def login_facteur_appareil():
+    """La page de connexion attend la reponse : 202 tant qu'elle n'est pas
+    venue, la session si elle est approuvee."""
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
+    nom = nom_en_attente()
+    ident = session.get("approbation") or ""
+    with _approbations_verrou:
+        _oublier_les_approbations_finies()
+        a = _approbations.get(ident)
+    if not nom or not a or a["nom"] != nom:
+        session.pop("approbation", None)
+        return jsonify({"error": "La demande a expiré. Recommence la connexion.",
+                        "expiree": True}), 400
+    if a["etat"] == "attente":
+        return jsonify({"attente": True}), 202
+    with _approbations_verrou:
+        _approbations.pop(ident, None)
+    session.pop("approbation", None)
+    if a["etat"] != "approuvee":
+        register_failed_attempt()
+        session.pop("facteur_attente", None)
+        journaliser("echec", qui=nom, motif="connexion refusée sur un autre appareil",
+                    ip=_adresse_client())
+        return jsonify({"error": "Connexion refusée sur ton autre appareil."}), 403
+    session.pop("facteur_attente", None)
+    session.pop("moyen_presente", None)
+    noter_dernier_moyen(nom, MOYEN_APPAREIL)
+    return _ouvrir_session_utilisateur(nom)
 
 
 def _lever_suspension_code_mail(nom):
@@ -1218,6 +1420,9 @@ def api_mon_compte():
         "email": (compte or {}).get("email") or "",
         "email_verifie": bool((compte or {}).get("email_verifie")),
         "passkeys": len(passkeys_du_compte(utilisateur_courant())),
+        # Cree avec Face ID : son mot de passe, aleatoire, n'est connu de
+        # personne (voir « creer son compte avec Face ID »).
+        "sans_mot_de_passe": bool((compte or {}).get("sans_mot_de_passe")),
         "profil": lire_profil(),
         # Sans serveur d'envoi, la page n'affiche pas un bouton qui echouera.
         "smtp": smtp_ok,
@@ -1559,6 +1764,7 @@ def mot_de_passe_reinitialiser():
     sel = secrets.token_hex(16)
     compte["sel"] = sel
     compte["hash"] = derive_mot_de_passe(nouveau, sel)
+    compte.pop("sans_mot_de_passe", None)
     # Le mail vient de servir : il ne sera pas, en plus, le second facteur.
     compte["code_mail_suspendu"] = True
     fermer_les_autres_sessions(compte, nom=nom)
@@ -1692,16 +1898,35 @@ def invitation_accepter(jeton):
         return jsonify({"error": "Ce lien d'invitation n'est plus valable. "
                                  "Demande-en un nouveau à ton administrateur."}), 404
     d = request.get_json(force=True, silent=True) or {}
-    nom = nom_utilisateur_valide(d.get("nom"))
+    nom, refus = _nom_pour_invitation(d.get("nom"))
+    if refus:
+        return refus
     mdp = (d.get("mot_de_passe") or "").strip()
-    if not nom:
-        return jsonify({"error": "Nom invalide : 2 à 32 caractères, "
-                                 "minuscules, chiffres, tiret ou souligné."}), 400
-    if nom == NOM_ADMIN:
-        return jsonify({"error": "Ce nom est réservé."}), 400
     if len(mdp) < MDP_MIN:
         return jsonify({"error": f"Mot de passe : {MDP_MIN} caractères au minimum."}), 400
+    erreur = _creer_compte_invite(empreinte, inv, nom, mdp)
+    if erreur:
+        return erreur
+    journaliser("compte", qui=nom, action="invitation acceptée", ip=_adresse_client())
+    return _ouvrir_session_utilisateur(nom)
 
+
+def _nom_pour_invitation(brut):
+    """(nom, None) si le nom peut etre pris, sinon (None, reponse)."""
+    nom = nom_utilisateur_valide(brut)
+    if not nom:
+        return None, (jsonify({"error": "Nom invalide : 2 à 32 caractères, "
+                                        "minuscules, chiffres, tiret ou souligné."}), 400)
+    if nom == NOM_ADMIN:
+        return None, (jsonify({"error": "Ce nom est réservé."}), 400)
+    if nom in lire_utilisateurs():
+        return None, (jsonify({"error": "Ce nom est déjà pris."}), 400)
+    return nom, None
+
+
+def _creer_compte_invite(empreinte, inv, nom, mdp, par_cle=False):
+    """Cree le compte de l'invitation et consomme celle-ci. None, ou la
+    reponse d'erreur."""
     comptes = lire_utilisateurs()
     if nom in comptes:
         return jsonify({"error": "Ce nom est déjà pris."}), 400
@@ -1716,6 +1941,10 @@ def invitation_accepter(jeton):
         "email_verifie": True,
         "cree": int(time.time()),
     }
+    if par_cle:
+        # Personne ne connait le mot de passe (voir « creer son compte avec
+        # Face ID ») : la page le dit, et « mot de passe oublie » en donne un.
+        comptes[nom]["sans_mot_de_passe"] = True
     invitations = lire_invitations()
     invitations.pop(empreinte, None)
     try:
@@ -1725,7 +1954,91 @@ def invitation_accepter(jeton):
         ecrire_utilisateurs(comptes)
     except (OSError, RuntimeError) as e:
         return jsonify({"error": f"Compte non enregistré : {e}"}), 500
-    journaliser("compte", qui=nom, action="invitation acceptée", ip=_adresse_client())
+    return None
+
+
+# CREER SON COMPTE AVEC FACE ID, SANS MOT DE PASSE. Vecu : « L'application
+# doit proposer de configurer le passkey automatiquement sur apple et
+# android, sans avoir a utiliser le qr code ou renseigner a la main le mot
+# de passe ». Sur la page d'invitation, un iPhone ou un Android cree la cle
+# d'acces du compte en un geste : ni mot de passe a choisir, ni QR code.
+# POURQUOI c'est aussi sur que le chemin avec mot de passe : le lien
+#   d'invitation prouve l'adresse (usage unique, expire) ; la cle exige la
+#   verification de la personne (Face ID, empreinte, code de l'appareil) :
+#   elle vaut mot de passe ET second facteur. Le compte recoit un mot de
+#   passe aleatoire que personne ne connait -- jamais affiche, jamais
+#   envoye : il ne peut donc pas ouvrir de session seul (regle 1).
+# REGLE : 1 ; 6 (limite des essais) ; 13 (route d'invitation, sans jeton :
+#   la personne n'a pas encore de session).
+# DEPEND DE : _options_enregistrement et _enregistrer_cle (les memes gardes
+#   que partout : UV exigee, defi a usage unique, origine verifiee) ;
+#   proposerFaceId (panneau), qui ne repropose rien a un compte qui a deja
+#   sa cle ; « mot de passe oublie », qui donne un mot de passe a qui en veut
+#   un (mail + la cle).
+# ECARTE : un compte sans aucun mot de passe enregistre : chaque garde qui
+#   le lit (changement, suppression, oubli) aurait du apprendre ce cas.
+INVITATION_CLE_VALIDITE = 600
+
+
+def _refus_invitation_cle(jeton):
+    """(empreinte, inv, None) si l'invitation est utilisable, sinon
+    (None, None, reponse)."""
+    if rate_limited():
+        return None, None, (jsonify({"error": "Trop de tentatives. Réessaie dans quelques "
+                                              "minutes."}), 429)
+    empreinte, inv = invitation_par_jeton(jeton)
+    if not inv:
+        register_failed_attempt()
+        return None, None, (jsonify({"error": "Ce lien d'invitation n'est plus valable. "
+                                              "Demande-en un nouveau à ton administrateur."}), 404)
+    refus = _refus_passkey()
+    if refus:
+        return None, None, refus
+    return empreinte, inv, None
+
+
+@flask_app.post("/invitation/<jeton>/passkey/options")
+def invitation_passkey_options(jeton):
+    empreinte, inv, refus = _refus_invitation_cle(jeton)
+    if refus:
+        return refus
+    nom, refus = _nom_pour_invitation((request.get_json(silent=True) or {}).get("nom"))
+    if refus:
+        return refus
+    session["invitation_cle"] = {"empreinte": empreinte, "nom": nom,
+                                 "depuis": int(time.time())}
+    return _options_enregistrement(nom)
+
+
+@flask_app.post("/invitation/<jeton>/passkey")
+def invitation_passkey(jeton):
+    empreinte, inv, refus = _refus_invitation_cle(jeton)
+    if refus:
+        return refus
+    attente = session.pop("invitation_cle", None) or {}
+    nom = attente.get("nom") or ""
+    if (attente.get("empreinte") != empreinte or not nom
+            or time.time() - (attente.get("depuis") or 0) > INVITATION_CLE_VALIDITE):
+        return jsonify({"error": "Recommence : aucune création en attente."}), 400
+    nom, refus = _nom_pour_invitation(nom)
+    if refus:
+        return refus
+    erreur = _enregistrer_cle(nom)
+    if erreur:
+        register_failed_attempt()
+        return erreur
+    erreur = _creer_compte_invite(empreinte, inv, nom, secrets.token_urlsafe(32), par_cle=True)
+    if erreur:
+        # Pas de cle orpheline pour un compte qui n'existe pas.
+        tout = lire_passkeys()
+        if tout.pop(nom, None) is not None:
+            try:
+                ecrire_passkeys(tout)
+            except OSError:
+                pass
+        return erreur
+    journaliser("compte", qui=nom, action="invitation acceptée (clé d'accès)",
+                ip=_adresse_client())
     return _ouvrir_session_utilisateur(nom)
 
 
@@ -1894,6 +2207,7 @@ def api_changer_mot_de_passe():
         return jsonify({"error": "Ancien mot de passe incorrect."}), 403
     compte["sel"] = secrets.token_hex(16)
     compte["hash"] = derive_mot_de_passe(nouveau, compte["sel"])
+    compte.pop("sans_mot_de_passe", None)
     fermer_les_autres_sessions(compte, garder_celle_ci=True, nom=nom)
     try:
         ecrire_utilisateurs(comptes)
@@ -2233,6 +2547,7 @@ def api_utilisateur_modifier(nom):
         compte["sel"] = secrets.token_hex(16)
         compte["hash"] = derive_mot_de_passe(mdp, compte["sel"])
         fermer_les_autres_sessions(compte, nom=nom)
+        compte.pop("sans_mot_de_passe", None)
 
     # Telephone perdu ou remplace : on efface le secret, et la personne
     # s'inscrit de nouveau a sa prochaine connexion. C'est le seul moyen de

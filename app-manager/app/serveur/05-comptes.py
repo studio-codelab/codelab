@@ -423,6 +423,9 @@ MOYEN_TOTP, MOYEN_EMAIL = "totp", "email"
 # Face ID / Touch ID en second facteur : apres le mot de passe, la cle
 # d'acces de CE compte confirme que c'est bien la personne.
 MOYEN_PASSKEY = "passkey"
+# Valider sur un appareil deja connecte (une notification, un nombre a
+# toucher) : voir « valider sur mon telephone », 10-routes-de-connexion.
+MOYEN_APPAREIL = "appareil"
 SECOND_FACTEUR_VALIDITE = 600
 
 

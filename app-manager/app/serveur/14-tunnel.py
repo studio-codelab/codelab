@@ -102,7 +102,8 @@ _NOM_DE_MACHINE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 # donnee comme une autre (AGENTS.md 3.1).
 _HOTE_TUNNEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9-]+)*\.ts\.net$")
 
-_tunnel = {"proc": None, "hote": "", "funnel": False, "erreur": "", "essai_cle": 0}
+_tunnel = {"proc": None, "hote": "", "funnel": False, "erreur": "", "essai_cle": 0,
+           "essai_funnel": 0}
 _tunnel_verrou = threading.Lock()
 
 
@@ -161,6 +162,25 @@ def origine_du_tunnel(quoi):
     return "https://" + hote + ("" if port == 443 else f":{port}")
 
 
+def adresse_funnel():
+    """L'adresse du panneau par Funnel si l'acces est allume, ou "".
+
+    Celle de la machine connectee ; a defaut, la derniere annoncee : au
+    redemarrage du panneau, tailscaled met quelques secondes a repondre, et
+    un lien d'invitation fait entre-temps doit deja la porter. Revalidee
+    (_HOTE_TUNNEL) : elle vient de la base. Sert a adresse_publique
+    (09-applications), donc aux liens d'invitation.
+    """
+    if not tunnel_voulu():
+        return ""
+    actuelle = origine_du_tunnel("panneau")
+    if actuelle:
+        return actuelle
+    annoncee = str(lire_tunnel().get("annoncee") or "")
+    hote = annoncee[len("https://"):] if annoncee.startswith("https://") else ""
+    return annoncee if _HOTE_TUNNEL.match(hote) else ""
+
+
 def _sans_privileges_tunnel():
     """preexec de tailscaled et de tailscale : leur propre uid et leur
     propre groupe, sans celui de /workspace (voir TUNNEL_UID). Sans effet
@@ -198,6 +218,12 @@ def _tailscale(*args, timeout=20):
                            timeout=timeout, env=_env_tunnel(), cwd=TAILSCALE_DIR,
                            preexec_fn=_sans_privileges_tunnel)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
+    except subprocess.TimeoutExpired as e:
+        # Ce qu'elle avait deja ecrit compte : « tailscale funnel » affiche
+        # le lien d'autorisation PUIS attend qu'on l'ouvre (voir
+        # _ouvrir_funnel).
+        return -2, "".join(x.decode("utf-8", "replace") if isinstance(x, bytes) else (x or "")
+                           for x in (e.stdout, e.stderr))
     except Exception as e:                                        # noqa: BLE001
         return -1, f"{type(e).__name__}: {e}"
 
@@ -304,15 +330,33 @@ def _se_connecter(cle):
             pass
 
 
+# Le lien d'autorisation que tailscale affiche quand HTTPS ou Funnel ne
+# sont pas encore permis a la machine. Seul ce domaine passe : il devient
+# un lien dans la carte (voir peindreTunnel), et une sortie de processus est
+# une donnee (AGENTS.md 3.1).
+_LIEN_D_AUTORISATION = re.compile(r"https://login\.tailscale\.com/[A-Za-z0-9/?=&._~%-]{1,300}")
+FUNNEL_RELANCE = 60          # secondes entre deux essais d'un Funnel refuse
+
+
 def _ouvrir_funnel():
     """Les deux ports publics, chacun vers son ecouteur sur 127.0.0.1.
-    Rend "" ou le message d'erreur de tailscale (HTTPS ou Funnel non
-    actives dans la console : il dit lequel)."""
+    Rend "" ou le message a montrer.
+
+    Vecu : « TimeoutExpired: Command [... 'funnel', '--bg', '--https=443',
+    ...] timed out after 30 seconds ». Funnel pas encore autorise : tailscale
+    affiche un lien vers la console, puis ATTEND qu'on l'ouvre. Le panneau
+    coupait la commande et perdait le lien. Il le garde maintenant, et la
+    carte le montre : un clic, et le tour suivant reussit.
+    """
     for public, local in FUNNEL_PORTS.values():
         code, sortie = _tailscale("funnel", "--bg", f"--https={public}",
                                   f"http://127.0.0.1:{local}", timeout=30)
         if code != 0:
-            return _sortie_lisible(sortie) or "Funnel n'a pas pu s'ouvrir."
+            lien = _LIEN_D_AUTORISATION.search(sortie or "")
+            if lien:
+                return ("Tailscale attend ton accord pour ouvrir Funnel sur cette machine : "
+                        + lien.group(0))
+            return _sortie_lisible(sortie) or "Funnel n'a pas pu s'ouvrir (délai dépassé)."
     return ""
 
 
@@ -351,7 +395,10 @@ def _tour_connecte(etat):
     if hote != _tunnel["hote"]:
         _tunnel["hote"] = hote
         print(f"[app-manager] tailscale : https://{hote}", flush=True)
-    if not _tunnel["funnel"]:
+    # Un Funnel refuse n'est reessaye qu'une fois par minute : chaque essai
+    # peut attendre 30 s, verrou tenu.
+    if not _tunnel["funnel"] and time.time() - _tunnel["essai_funnel"] > FUNNEL_RELANCE:
+        _tunnel["essai_funnel"] = time.time()
         _tunnel["erreur"] = _ouvrir_funnel()
         _tunnel["funnel"] = not _tunnel["erreur"]
     if _tunnel["funnel"]:
@@ -470,6 +517,10 @@ def api_tunnel_ecrire():
         return jsonify({"error": f"Réglage non enregistré : {e}"}), 500
     if cle:
         _tunnel.update(essai_cle=0, erreur="")
+    if corps.get("actif") is True:
+        # Rallumer, c'est aussi « reessaie maintenant » (apres avoir ouvert
+        # le lien d'autorisation, par exemple).
+        _tunnel.update(essai_funnel=0, essai_cle=0)
     if deconnecter:
         # La machine quitte le reseau Tailscale (son etat est oublie) :
         # rallumer demandera une cle.

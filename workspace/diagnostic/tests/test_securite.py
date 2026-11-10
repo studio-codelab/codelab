@@ -935,9 +935,14 @@ def test_toutes_les_routes_d_ecriture_sont_couvertes(deux_espaces):
         "login_inscription_passkey_options", "login_inscription_passkey",
         # Etape 2 de la connexion : Face ID confirme le mot de passe.
         "login_facteur_passkey_options", "login_facteur_passkey",
+        # Etape 2 encore : la page attend que l'autre appareil approuve.
+        "login_facteur_appareil",
         # Ouverte par la personne invitee, sans session -- ou dans le
         # navigateur de l'administrateur qui essaie son propre lien.
         "invitation_accepter",
+        # La meme, avec Face ID au lieu d'un mot de passe : la personne
+        # invitee n'a pas encore de session (regle 13 : routes d'invitation).
+        "invitation_passkey_options", "invitation_passkey",
         "proxy", "proxy_noslash",
     }
 
