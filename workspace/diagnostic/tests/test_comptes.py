@@ -1194,6 +1194,73 @@ def test_accepter_l_invitation_cree_le_compte_verifie_et_ouvre_la_session(invita
 
 
 
+def test_l_invitation_cree_le_compte_avec_face_id_sans_mot_de_passe(invitations, monkeypatch):
+    """Vecu : « proposer de configurer le passkey automatiquement sur apple
+    et android, sans avoir a utiliser le qr code ou renseigner a la main le
+    mot de passe ». Le compte nait avec sa cle ; son mot de passe, aleatoire,
+    n'est connu de personne et n'ouvre rien seul (regle 1)."""
+    _inscription_face_id(monkeypatch)
+    c, partis, h = invitations
+    c.post("/api/invitations", json={"email": "paul@example.com"}, headers=h)
+    jeton = _jeton_du_lien(partis)
+    c.post("/logout")
+    r = c.post("/invitation/%s/passkey/options" % jeton, json={"nom": "paul"})
+    assert r.status_code == 200, r.data
+    assert r.get_json()["authenticatorSelection"]["userVerification"] == "required"
+    # Rien n'existe avant la cle verifiee.
+    assert "paul" not in app.lire_utilisateurs()
+    r = c.post("/invitation/%s/passkey" % jeton, json={"credential": {}, "nom": "iPhone"})
+    assert r.status_code == 200, r.data
+    compte = app.lire_utilisateurs()["paul"]
+    assert compte["sans_mot_de_passe"] is True and compte["email_verifie"] is True
+    assert len(app.passkeys_du_compte("paul")) == 1
+    assert c.get("/api/mon-compte").get_json()["sans_mot_de_passe"] is True
+    # Le lien ne sert qu'une fois, par ce chemin comme par l'autre.
+    c.post("/logout")
+    assert c.post("/invitation/%s/passkey/options" % jeton, json={"nom": "autre"}).status_code == 404
+    assert c.post("/invitation/" + jeton, json={"nom": "autre",
+                  "mot_de_passe": "mot-de-passe-long"}).status_code == 404
+
+
+def test_sans_defi_ni_invitation_valide_face_id_ne_cree_rien(invitations, monkeypatch):
+    """La cle n'est acceptee que pour la creation demandee juste avant, sur
+    le meme lien : ni un appel direct, ni un lien invente."""
+    _inscription_face_id(monkeypatch)
+    c, partis, h = invitations
+    c.post("/api/invitations", json={"email": "paul@example.com"}, headers=h)
+    jeton = _jeton_du_lien(partis)
+    c.post("/logout")
+    # Sans les options d'abord : aucune creation en attente.
+    assert c.post("/invitation/%s/passkey" % jeton, json={"credential": {}}).status_code == 400
+    assert c.post("/invitation/%s/passkey/options" % ("x" * 43),
+                  json={"nom": "intrus"}).status_code == 404
+    # Un nom deja pris ou reserve ne passe pas.
+    assert c.post("/invitation/%s/passkey/options" % jeton,
+                  json={"nom": app.NOM_ADMIN}).status_code == 400
+    assert "paul" not in app.lire_utilisateurs() and not app.passkeys_du_compte("intrus")
+
+
+def test_face_id_a_l_invitation_suit_les_memes_conditions_que_partout(invitations, monkeypatch):
+    """En HTTP par une adresse IP, le navigateur refuserait : le serveur le
+    dit plutot que d'ouvrir une creation vouee a l'echec."""
+    pytest.importorskip("webauthn")
+    monkeypatch.setattr(app, "passkey_contexte",
+                        lambda: ("", "", "Les clés d'accès exigent une connexion HTTPS."))
+    c, partis, h = invitations
+    c.post("/api/invitations", json={"email": "paul@example.com"}, headers=h)
+    jeton = _jeton_du_lien(partis)
+    c.post("/logout")
+    r = c.post("/invitation/%s/passkey/options" % jeton, json={"nom": "paul"})
+    assert r.status_code == 400 and "HTTPS" in r.get_json()["error"]
+
+
+def test_choisir_un_mot_de_passe_retire_la_mention_sans_mot_de_passe(monkeypatch):
+    src = _source_du_panneau()
+    assert src.count('compte.pop("sans_mot_de_passe", None)') == 3
+    page = _lire_source("app-manager/app/login.html")
+    assert "function invitationPasskey()" in page and 'id="inv-pk"' in page
+
+
 def test_un_lien_d_invitation_invente_ne_cree_rien(invitations):
     c, _, _ = invitations
     c.post("/logout")

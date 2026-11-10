@@ -21,6 +21,15 @@ async function chargerMonCompte(){
   $('mail-confirmation').style.display =
     (monCompte.email && !monCompte.email_verifie) ? 'block' : 'none';
 }
+/* Un compte cree avec Face ID n'a pas de mot de passe connu : la carte le
+   dit, et dit comment en choisir un (voir « creer son compte avec Face
+   ID », 10-routes). */
+async function peindreMotDePasse(){
+  try{
+    const d=await (await fetch('/api/mon-compte')).json();
+    $('mdp-sans').style.display = d.sans_mot_de_passe ? 'block' : 'none';
+  }catch(e){}
+}
 function mailMessage(texte, erreur){
   $('mail-err').style.display = erreur ? 'block' : 'none';
   $('mail-msg').style.display = (!erreur && texte) ? 'block' : 'none';

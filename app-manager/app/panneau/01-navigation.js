@@ -474,6 +474,7 @@ function paramOnglet(o){
   }
   if(o==='securite'){
     $('mdp-err').style.display='none'; $('mdp-msg').style.display='none';
+    peindreMotDePasse();
     chargerPasskeys();
     chargerAppareils();
     if(estAdmin) chargerSauvegardes();

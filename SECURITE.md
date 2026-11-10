@@ -315,7 +315,7 @@ Sans lui, les réglages chiffrés deviennent illisibles.
     sur `127.0.0.1`. `X-Forwarded-For`, que tailscaled remplace par l'adresse du visiteur, n'y est
     cru que pour la limite des essais, et nulle part ailleurs.
 13. Toute route qui modifie quelque chose exige le jeton anti-falsification de la session, sauf les
-    routes de connexion et d'invitation, et celle du tournage, qui n'a pas de session et se prouve
+    routes de connexion et d'invitation (Face ID compris), et celle du tournage, qui n'a pas de session et se prouve
     par la clé en en-tête (12 ter).
 14. Pas d'inscription libre.
 15. Le contrôle des droits se fait côté serveur, jamais seulement dans l'interface.

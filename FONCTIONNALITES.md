@@ -340,6 +340,12 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 Détails : [`SECURITE.md`](SECURITE.md) et [`app-manager/README.md`](app-manager/README.md).
 
 - **Deux rôles** : administrateur et utilisateur.
+- **Créer son compte avec Face ID** (iPhone, iPad, Mac, Android) : sur la page d'invitation, après
+  le nom, le bouton *Créer mon compte avec Face ID* (ou *avec ton empreinte*) crée le compte et sa
+  clé d'accès d'un geste, sans mot de passe à choisir ni QR code. Il n'apparaît qu'en HTTPS, par un
+  nom de domaine, par exemple l'adresse Tailscale : en `http://` sur une adresse IP, le navigateur
+  refuse les clés d'accès. Le compte n'a pas de mot de passe connu ; *Mot de passe oublié* en donne
+  un à qui en veut.
 - **Appareils connectés** (*Paramètres > Sécurité*, chaque compte) : où le compte est ouvert (« Safari
   sur iPhone », adresse, dernière activité, « Cet appareil »), un bouton pour déconnecter chacun, et
   « Déconnecter les autres appareils ». Téléphone perdu : on le coupe sans changer de mot de passe.

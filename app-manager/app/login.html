@@ -294,6 +294,17 @@ button.principal:disabled{opacity:.6;cursor:default}
           <input type="text" id="inv-nom" autocomplete="username" placeholder="marie"
                  autocapitalize="none" spellcheck="false"></div>
         <div class="etape-num">Minuscules, chiffres, tiret ou souligné.</div>
+        <!-- FACE ID A LA CREATION. Vecu : « proposer de configurer le passkey
+             automatiquement sur apple et android, sans avoir a utiliser le
+             qr code ou renseigner a la main le mot de passe ». Le compte nait
+             avec sa cle d'acces : ni mot de passe a choisir, ni code. Montre
+             seulement quand l'appareil ET le serveur savent le faire. -->
+        <div id="inv-pk" style="display:none;margin-top:14px">
+          <button type="button" class="bouton-geste" id="inv-pk-go" onclick="invitationPasskey()">
+            <span class="geste-ico" aria-hidden="true"></span>
+            <span id="inv-pk-libelle">Créer mon compte avec Face ID</span></button>
+          <div class="ou">ou avec un mot de passe</div>
+        </div>
         <div class="field" style="margin-top:14px"><label>Mot de passe</label>
           <input type="password" id="inv-mdp" autocomplete="new-password"
                  placeholder="12 caractères au minimum"></div>
@@ -604,6 +615,45 @@ function montrerQr(adresse){
   img.src=adresse+'?t='+Date.now();
 }
 
+/* Creer le compte de l'invitation avec sa cle d'acces : le serveur ne
+   cree le compte qu'une fois la cle verifiee. */
+async function invitationPasskey(){
+  err.style.display='none';
+  if(!($$('inv-nom').value||'').trim()){
+    err.textContent='Choisis d\'abord ton nom d\'utilisateur.'; err.style.display='block';
+    $$('inv-nom').focus(); return;
+  }
+  const b=$$('inv-pk-go'); b.disabled=true;
+  try{
+    const base='/invitation/'+encodeURIComponent(jetonInvitation)+'/passkey';
+    const r=await fetch(base+'/options',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({nom:$$('inv-nom').value})});
+    const o=await r.json();
+    if(!r.ok){ err.textContent=o.error||'Impossible.'; err.style.display='block'; return; }
+    o.challenge=b64urlVersOctets(o.challenge);
+    o.user.id=b64urlVersOctets(o.user.id);
+    (o.excludeCredentials||[]).forEach(c=>{ c.id=b64urlVersOctets(c.id); });
+    const cred=await navigator.credentials.create({publicKey:o});
+    const envoi={
+      id:cred.id, rawId:octetsVersB64url(cred.rawId), type:cred.type,
+      response:{
+        clientDataJSON:octetsVersB64url(cred.response.clientDataJSON),
+        attestationObject:octetsVersB64url(cred.response.attestationObject),
+      },
+    };
+    const r2=await fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({credential:envoi, nom:nomDuGeste()})});
+    const d2=await r2.json();
+    if(r2.ok){ location.href='/'; return; }
+    err.textContent=d2.error||'Clé refusée.'; err.style.display='block';
+  }catch(e){
+    err.textContent = (e && e.name==='NotAllowedError')
+      ? 'Annulé. Réessaie, ou choisis un mot de passe.'
+      : ('Clé d\'accès indisponible : ' + (e&&e.message||e));
+    err.style.display='block';
+  }finally{ b.disabled=false; }
+}
+
 /* ---------------- cles d'acces ---------------- */
 const b64urlVersOctets = t => Uint8Array.from(
   atob(t.replace(/-/g,'+').replace(/_/g,'/')), c=>c.charCodeAt(0));
@@ -908,6 +958,16 @@ if(jetonInvitation){
       }
       $$('inv-mail').value=d.email;
       $$('inv-nom').focus();
+      /* Face ID en tete quand c'est possible : le chemin le plus court. */
+      if(window.PublicKeyCredential){
+        const etat=await (await fetch('/api/passkeys/etat')).json();
+        if(etat.possible){
+          $$('inv-pk-libelle').textContent='Créer mon compte avec ' + nomDuGeste();
+          $$('inv-pk').style.display='block';
+          document.querySelector('.boite .st').textContent='Choisis ton nom d\'utilisateur, puis '
+            + nomDuGeste() + ' ou un mot de passe.';
+        }
+      }
     }catch(e){ err.textContent='Erreur réseau.'; err.style.display='block'; }
   })();
 }

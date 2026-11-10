@@ -1218,6 +1218,9 @@ def api_mon_compte():
         "email": (compte or {}).get("email") or "",
         "email_verifie": bool((compte or {}).get("email_verifie")),
         "passkeys": len(passkeys_du_compte(utilisateur_courant())),
+        # Cree avec Face ID : son mot de passe, aleatoire, n'est connu de
+        # personne (voir « creer son compte avec Face ID »).
+        "sans_mot_de_passe": bool((compte or {}).get("sans_mot_de_passe")),
         "profil": lire_profil(),
         # Sans serveur d'envoi, la page n'affiche pas un bouton qui echouera.
         "smtp": smtp_ok,
@@ -1559,6 +1562,7 @@ def mot_de_passe_reinitialiser():
     sel = secrets.token_hex(16)
     compte["sel"] = sel
     compte["hash"] = derive_mot_de_passe(nouveau, sel)
+    compte.pop("sans_mot_de_passe", None)
     # Le mail vient de servir : il ne sera pas, en plus, le second facteur.
     compte["code_mail_suspendu"] = True
     fermer_les_autres_sessions(compte, nom=nom)
@@ -1692,16 +1696,35 @@ def invitation_accepter(jeton):
         return jsonify({"error": "Ce lien d'invitation n'est plus valable. "
                                  "Demande-en un nouveau à ton administrateur."}), 404
     d = request.get_json(force=True, silent=True) or {}
-    nom = nom_utilisateur_valide(d.get("nom"))
+    nom, refus = _nom_pour_invitation(d.get("nom"))
+    if refus:
+        return refus
     mdp = (d.get("mot_de_passe") or "").strip()
-    if not nom:
-        return jsonify({"error": "Nom invalide : 2 à 32 caractères, "
-                                 "minuscules, chiffres, tiret ou souligné."}), 400
-    if nom == NOM_ADMIN:
-        return jsonify({"error": "Ce nom est réservé."}), 400
     if len(mdp) < MDP_MIN:
         return jsonify({"error": f"Mot de passe : {MDP_MIN} caractères au minimum."}), 400
+    erreur = _creer_compte_invite(empreinte, inv, nom, mdp)
+    if erreur:
+        return erreur
+    journaliser("compte", qui=nom, action="invitation acceptée", ip=_adresse_client())
+    return _ouvrir_session_utilisateur(nom)
 
+
+def _nom_pour_invitation(brut):
+    """(nom, None) si le nom peut etre pris, sinon (None, reponse)."""
+    nom = nom_utilisateur_valide(brut)
+    if not nom:
+        return None, (jsonify({"error": "Nom invalide : 2 à 32 caractères, "
+                                        "minuscules, chiffres, tiret ou souligné."}), 400)
+    if nom == NOM_ADMIN:
+        return None, (jsonify({"error": "Ce nom est réservé."}), 400)
+    if nom in lire_utilisateurs():
+        return None, (jsonify({"error": "Ce nom est déjà pris."}), 400)
+    return nom, None
+
+
+def _creer_compte_invite(empreinte, inv, nom, mdp, par_cle=False):
+    """Cree le compte de l'invitation et consomme celle-ci. None, ou la
+    reponse d'erreur."""
     comptes = lire_utilisateurs()
     if nom in comptes:
         return jsonify({"error": "Ce nom est déjà pris."}), 400
@@ -1716,6 +1739,10 @@ def invitation_accepter(jeton):
         "email_verifie": True,
         "cree": int(time.time()),
     }
+    if par_cle:
+        # Personne ne connait le mot de passe (voir « creer son compte avec
+        # Face ID ») : la page le dit, et « mot de passe oublie » en donne un.
+        comptes[nom]["sans_mot_de_passe"] = True
     invitations = lire_invitations()
     invitations.pop(empreinte, None)
     try:
@@ -1725,7 +1752,91 @@ def invitation_accepter(jeton):
         ecrire_utilisateurs(comptes)
     except (OSError, RuntimeError) as e:
         return jsonify({"error": f"Compte non enregistré : {e}"}), 500
-    journaliser("compte", qui=nom, action="invitation acceptée", ip=_adresse_client())
+    return None
+
+
+# CREER SON COMPTE AVEC FACE ID, SANS MOT DE PASSE. Vecu : « L'application
+# doit proposer de configurer le passkey automatiquement sur apple et
+# android, sans avoir a utiliser le qr code ou renseigner a la main le mot
+# de passe ». Sur la page d'invitation, un iPhone ou un Android cree la cle
+# d'acces du compte en un geste : ni mot de passe a choisir, ni QR code.
+# POURQUOI c'est aussi sur que le chemin avec mot de passe : le lien
+#   d'invitation prouve l'adresse (usage unique, expire) ; la cle exige la
+#   verification de la personne (Face ID, empreinte, code de l'appareil) :
+#   elle vaut mot de passe ET second facteur. Le compte recoit un mot de
+#   passe aleatoire que personne ne connait -- jamais affiche, jamais
+#   envoye : il ne peut donc pas ouvrir de session seul (regle 1).
+# REGLE : 1 ; 6 (limite des essais) ; 13 (route d'invitation, sans jeton :
+#   la personne n'a pas encore de session).
+# DEPEND DE : _options_enregistrement et _enregistrer_cle (les memes gardes
+#   que partout : UV exigee, defi a usage unique, origine verifiee) ;
+#   proposerFaceId (panneau), qui ne repropose rien a un compte qui a deja
+#   sa cle ; « mot de passe oublie », qui donne un mot de passe a qui en veut
+#   un (mail + la cle).
+# ECARTE : un compte sans aucun mot de passe enregistre : chaque garde qui
+#   le lit (changement, suppression, oubli) aurait du apprendre ce cas.
+INVITATION_CLE_VALIDITE = 600
+
+
+def _refus_invitation_cle(jeton):
+    """(empreinte, inv, None) si l'invitation est utilisable, sinon
+    (None, None, reponse)."""
+    if rate_limited():
+        return None, None, (jsonify({"error": "Trop de tentatives. Réessaie dans quelques "
+                                              "minutes."}), 429)
+    empreinte, inv = invitation_par_jeton(jeton)
+    if not inv:
+        register_failed_attempt()
+        return None, None, (jsonify({"error": "Ce lien d'invitation n'est plus valable. "
+                                              "Demande-en un nouveau à ton administrateur."}), 404)
+    refus = _refus_passkey()
+    if refus:
+        return None, None, refus
+    return empreinte, inv, None
+
+
+@flask_app.post("/invitation/<jeton>/passkey/options")
+def invitation_passkey_options(jeton):
+    empreinte, inv, refus = _refus_invitation_cle(jeton)
+    if refus:
+        return refus
+    nom, refus = _nom_pour_invitation((request.get_json(silent=True) or {}).get("nom"))
+    if refus:
+        return refus
+    session["invitation_cle"] = {"empreinte": empreinte, "nom": nom,
+                                 "depuis": int(time.time())}
+    return _options_enregistrement(nom)
+
+
+@flask_app.post("/invitation/<jeton>/passkey")
+def invitation_passkey(jeton):
+    empreinte, inv, refus = _refus_invitation_cle(jeton)
+    if refus:
+        return refus
+    attente = session.pop("invitation_cle", None) or {}
+    nom = attente.get("nom") or ""
+    if (attente.get("empreinte") != empreinte or not nom
+            or time.time() - (attente.get("depuis") or 0) > INVITATION_CLE_VALIDITE):
+        return jsonify({"error": "Recommence : aucune création en attente."}), 400
+    nom, refus = _nom_pour_invitation(nom)
+    if refus:
+        return refus
+    erreur = _enregistrer_cle(nom)
+    if erreur:
+        register_failed_attempt()
+        return erreur
+    erreur = _creer_compte_invite(empreinte, inv, nom, secrets.token_urlsafe(32), par_cle=True)
+    if erreur:
+        # Pas de cle orpheline pour un compte qui n'existe pas.
+        tout = lire_passkeys()
+        if tout.pop(nom, None) is not None:
+            try:
+                ecrire_passkeys(tout)
+            except OSError:
+                pass
+        return erreur
+    journaliser("compte", qui=nom, action="invitation acceptée (clé d'accès)",
+                ip=_adresse_client())
     return _ouvrir_session_utilisateur(nom)
 
 
@@ -1894,6 +2005,7 @@ def api_changer_mot_de_passe():
         return jsonify({"error": "Ancien mot de passe incorrect."}), 403
     compte["sel"] = secrets.token_hex(16)
     compte["hash"] = derive_mot_de_passe(nouveau, compte["sel"])
+    compte.pop("sans_mot_de_passe", None)
     fermer_les_autres_sessions(compte, garder_celle_ci=True, nom=nom)
     try:
         ecrire_utilisateurs(comptes)
@@ -2233,6 +2345,7 @@ def api_utilisateur_modifier(nom):
         compte["sel"] = secrets.token_hex(16)
         compte["hash"] = derive_mot_de_passe(mdp, compte["sel"])
         fermer_les_autres_sessions(compte, nom=nom)
+        compte.pop("sans_mot_de_passe", None)
 
     # Telephone perdu ou remplace : on efface le secret, et la personne
     # s'inscrit de nouveau a sa prochaine connexion. C'est le seul moyen de
