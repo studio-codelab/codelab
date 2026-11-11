@@ -3162,6 +3162,44 @@ def test_le_cookie_de_tournage_expire(tournage, monkeypatch):
     assert c.get("/prive-refuse/").status_code == 302
 
 
+def _cookie_pose(reponse, nom):
+    return next((v for v in reponse.headers.getlist("Set-Cookie") if v.startswith(nom + "=")), "")
+
+
+def test_le_cookie_de_tournage_est_secure_derriere_un_proxy_https(tournage):
+    """Audit du 2026-11-11, R4 : le cookie suivait request.is_secure, que le
+    TLS termine par un VPS ne rend pas vrai. Il suit maintenant la regle de
+    la session (https_actif) : Secure des que le proxy annonce le https, et
+    seulement alors."""
+    c, _vus = tournage
+    ticket = _ticket(c).get_json()["ticket"]
+    r = c.get(f"/prive-refuse/?codelab-tournage={ticket}", headers={"X-Forwarded-Proto": "https"})
+    assert r.status_code == 302
+    assert "; Secure" in _cookie_pose(r, app.TOURNAGE_COOKIE)
+    ticket = _ticket(c).get_json()["ticket"]
+    r = c.get(f"/prive-refuse/?codelab-tournage={ticket}")
+    assert r.status_code == 302
+    pose = _cookie_pose(r, app.TOURNAGE_COOKIE)
+    assert pose and "Secure" not in pose, "en clair, le navigateur ne le renverrait plus"
+
+
+def test_le_cookie_d_appareil_est_secure_comme_la_session(appareils):
+    """Audit du 2026-11-11, R4 : le cookie d'appareil suivait
+    SESSION_COOKIE_SECURE, fixe au demarrage par APP_MANAGER_HTTPS seul.
+    Derriere un VPS, la session devenait Secure, pas lui."""
+    relaye = app.flask_app.test_client()
+    relaye.environ_base["HTTP_X_FORWARDED_PROTO"] = "https"
+    _connecte(relaye, "marie", "mot-de-passe-long")
+    assert relaye.get("/api/mes-apps").status_code == 200
+    assert relaye.get_cookie(app.COOKIE_APPAREIL).secure
+    assert relaye.get_cookie(app.flask_app.config.get("SESSION_COOKIE_NAME") or "session").secure
+    direct = _marie_sur(IPHONE)
+    assert not direct.get_cookie(app.COOKIE_APPAREIL).secure
+    source = _source_du_panneau()
+    assert "SESSION_COOKIE_SECURE=" not in source and '"SESSION_COOKIE_SECURE"' not in source, \
+        "un drapeau fixe au demarrage ne voit pas le TLS d'un VPS"
+
+
 def test_le_laissez_passer_refuse_sans_la_cle_et_compte_les_essais(tournage):
     c, _vus = tournage
     assert _ticket(c, cle="").status_code == 403

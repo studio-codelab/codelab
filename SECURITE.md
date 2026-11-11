@@ -205,8 +205,8 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 | — | Postgres, Redis, SMTP de Mailpit | non publiés : réseau Docker interne seulement |
 
 - **Toujours au plus strict**, sans case à cocher :
-  - le HTTPS est constaté (directement ou par `X-Forwarded-Proto`), ce qui active le cookie `Secure`
-    et HSTS (6 mois) ;
+  - le HTTPS est constaté (directement ou par `X-Forwarded-Proto`), ce qui active `Secure` sur les
+    cookies (session, appareil, tournage) et HSTS (6 mois) ;
   - `X-Forwarded-For` n'est jamais cru ;
   - une requête relayée (`X-Forwarded-*`) n'atteint jamais l'administration.
 - **En-têtes du panneau** : CSP stricte (`default-src 'self'`, `frame-ancestors 'none'`,

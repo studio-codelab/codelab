@@ -1091,8 +1091,12 @@ def echanger_le_ticket(name, sub):
     reste = [(k, v) for k, v in request.args.items(multi=True) if k != TOURNAGE_PARAMETRE]
     cible = request.path + ("?" + urllib.parse.urlencode(reste) if reste else "")
     r = redirect(cible, 302)
+    # Secure par la meme regle que la session (https_actif) : request.is_secure
+    # seul ne voit pas le TLS termine par un VPS (X-Forwarded-Proto). Un
+    # client qui ment sur cet en-tete ne rend Secure que son propre cookie,
+    # que son navigateur ignore alors en clair.
     r.set_cookie(TOURNAGE_COOKIE, jeton, max_age=TOURNAGE_DUREE, path="/",
-                 httponly=True, samesite="Lax", secure=request.is_secure)
+                 httponly=True, samesite="Lax", secure=https_actif())
     return r
 
 

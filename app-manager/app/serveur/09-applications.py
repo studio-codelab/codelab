@@ -682,6 +682,8 @@ def https_actif():
     donne rien a un menteur : un cookie Secure pose sur une connexion en
     clair est ignore par le navigateur, et HSTS aussi. APP_MANAGER_HTTPS=1
     le force (jamais l'inverse).
+    PROTEGE AUSSI : les cookies d'appareil (poser_le_cookie_d_appareil) et de
+    tournage (echanger_le_ticket), qui suivent la meme regle que la session.
     """
     if _vrai(os.environ.get("APP_MANAGER_HTTPS")):
         return True

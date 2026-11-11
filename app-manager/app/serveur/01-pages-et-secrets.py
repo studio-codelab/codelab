@@ -96,17 +96,11 @@ flask_app = Flask(__name__)
 flask_app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    # "Secure" interdit au navigateur d'envoyer le cookie sur une connexion en
-    # clair. Indispensable des qu'un reverse proxy termine du TLS devant --
-    # mais actif seulement sur demande : le poser alors que le panneau est
-    # servi en http empecherait purement et simplement de se connecter.
-    #
-    # Regle au demarrage plutot que depuis l'interface, et c'est delibere :
-    # l'activer depuis une page servie en clair deconnecterait sur-le-champ la
-    # session qui vient de l'activer, sans moyen de revenir en arriere.
-    # Le cookie suit ensuite chaque requete (voir SessionSelonLaConnexion).
-    SESSION_COOKIE_SECURE=os.environ.get("APP_MANAGER_HTTPS", "").lower()
-                          in ("1", "true", "yes"),
+    # "Secure" ne se regle pas ici : il suit chaque requete (https_actif),
+    # pour la session (SessionSelonLaConnexion) comme pour les cookies
+    # d'appareil et de tournage. APP_MANAGER_HTTPS=1 le force. Il y avait ici
+    # SESSION_COOKIE_SECURE, que plus rien ne lisait apres l'audit du
+    # 2026-11-11 (R4) : retire, pour qu'on ne le croie pas en vigueur.
     # DEUX LIMITES, ET IL FAUT LES DEUX.
     #
     # Celle-ci est la limite d'INACTIVITE : Flask repousse la date du cookie a

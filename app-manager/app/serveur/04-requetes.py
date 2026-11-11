@@ -358,13 +358,16 @@ def suivre_l_appareil():
 @flask_app.after_request
 def poser_le_cookie_d_appareil(reponse):
     """L'identifiant d'un appareil qui n'en avait pas (voir COOKIE_APPAREIL).
-    HttpOnly : une page n'a pas a le lire ; Secure des que le panneau est
-    servi en TLS, comme la session."""
+    HttpOnly : une page n'a pas a le lire ; Secure des que la requete arrive
+    en HTTPS, par la meme regle que la session (https_actif, voir
+    SessionSelonLaConnexion) et que le cookie de tournage.
+    Vecu : il suivait SESSION_COOKIE_SECURE, fixe au demarrage par
+    APP_MANAGER_HTTPS seul. Derriere un VPS qui termine le TLS, la session
+    devenait Secure, pas lui (audit du 2026-11-11, R4)."""
     appareil = g.get("appareil_a_poser")
     if appareil:
         reponse.set_cookie(COOKIE_APPAREIL, appareil, max_age=APPAREIL_DUREE, path="/",
-                           httponly=True, samesite="Lax",
-                           secure=bool(flask_app.config.get("SESSION_COOKIE_SECURE")))
+                           httponly=True, samesite="Lax", secure=https_actif())
     return reponse
 
 

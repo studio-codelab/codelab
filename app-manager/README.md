@@ -240,7 +240,7 @@ Une valeur existante n'est jamais régénérée.
 | `APP_MANAGER_TAILSCALE`, `APP_MANAGER_TAILSCALED` | `/usr/local/bin/tailscale`, `/usr/local/bin/tailscaled` | les binaires de Tailscale Funnel (Paramètres > Sécurité) ; absents, l'interrupteur est grisé |
 | `APP_MANAGER_TUNNEL_UID` | `1002` | l'uid de tailscaled et de tailscale, qu'aucune application ne partage |
 | `APP_MANAGER_PUBLIC_URL` | — | adresse publique ; sinon l'adresse Tailscale Funnel quand l'accès depuis internet est allumé, sinon le domaine par lequel le panneau a été ouvert depuis internet |
-| `APP_MANAGER_HTTPS` | — | `1` force le cookie `Secure` (sinon constaté à chaque requête) |
+| `APP_MANAGER_HTTPS` | — | `1` force `Secure` sur les cookies de session, d'appareil et de tournage (sinon constaté à chaque requête) |
 | `APP_MANAGER_ADMIN_2FA` | `1` | `0` : marche arrière si le second facteur admin est perdu |
 | `APP_MANAGER_ISOLER` | `1` | isolation du système de fichiers par application |
 | `APP_MANAGER_UID_BASE`, `APP_MANAGER_UID_PLAGE` | `10000`, `5000` | plage des uid par application |
