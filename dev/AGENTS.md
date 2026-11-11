@@ -304,9 +304,32 @@ L'identite contient `sub`, `nom`, `role` (`admin` ou `utilisateur`), `email` et
 Une application privee a deja la connexion imposee par le panneau. Mais les
 applications d'un meme serveur partagent son reseau local : une autre
 application, malveillante ou compromise, peut joindre ton port directement,
-sans passer par le panneau. Si l'application garde des donnees sensibles,
-verifie donc aussi l'identite toi-meme, a chaque requete : sans jeton signe
-valide, `utilisateur(request.headers)` rend `None`, et la requete se refuse.
+sans passer par le panneau. **Si l'application garde des donnees sensibles,
+elle verifie l'identite elle-meme, a chaque requete** : la visibilite
+*Privee* ou *Reseau local* ne suffit pas, l'une et l'autre se controlent dans
+le proxy, que la voisine contourne. Sans jeton signe valide,
+`utilisateur(request.headers)` rend `None`, et la requete se refuse. Le jeton
+est lie a ton application (`aud`) : celui qu'une voisine a recu pour elle ne
+vaut rien chez toi. Le minimum, pour une application reservee aux comptes
+CodeLab (Flask) :
+
+```python
+from flask import abort, g, request
+import codelab_auth
+
+@app.before_request
+def exiger_codelab():
+    u = codelab_auth.utilisateur(request.headers)
+    if u is None:
+        abort(403)
+    g.utilisateur = u          # u["sub"], u["role"] : qui, et avec quel droit
+```
+
+Si l'application a aussi ses propres comptes, garde l'ordre de la connexion
+silencieuse ci-dessus : sa session, sinon le jeton, sinon son formulaire.
+Ce controle ne protege pas d'un script d'une autre application servie sur la
+meme origine (`:9002` sans VPS) : celui-la agit dans le navigateur du
+visiteur, avec son jeton. Seul un sous-domaine par application l'arrete.
 
 ## 10. Pages d'erreur et en-tetes de securite
 
@@ -721,6 +744,9 @@ chaque point, et dis lesquels tu n'as pas pu verifier.
 - [ ] Une cle d'API par application chez chaque fournisseur, dans son `.env`
 - [ ] Connexion via `codelab_auth` si l'application a des comptes ; aucun
       en-tete `X-CodeLab-*` cru sans le jeton signe
+- [ ] Donnees sensibles : identite verifiee a chaque requete
+      (`codelab_auth.utilisateur`), pas seulement la visibilite (*Privee*,
+      *Reseau local*)
 - [ ] En-tetes de securite poses (`entetes_de_securite`) ou ecart justifie
 - [ ] Entrees utilisateur validees cote serveur ; requetes SQL parametrees
 - [ ] Base du projet (jamais `POSTGRES_DB`) ; cles Redis prefixees, cache avec

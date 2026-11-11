@@ -255,8 +255,11 @@ def test_le_manuel_porte_la_liste_avant_mise_en_ligne():
     manuel = open(os.path.join(_racine_depot(), "dev", "AGENTS.md"), encoding="utf-8").read()
     assert "## Avant de declarer une application prete" in manuel
     for attendu in ("375 px", "codelab_web", "entetes_de_securite", "requirements-dagster.txt",
-                    "`.env` dans le `.gitignore`", "codelab db"):
+                    "`.env` dans le `.gitignore`", "codelab db",
+                    # Audit du 2026-11-11, R3 : une voisine joint le port sans le proxy.
+                    "pas seulement la visibilite (*Privee*,\n      *Reseau local*)"):
         assert attendu in manuel, attendu
+    assert "codelab_auth.utilisateur(request.headers)" in manuel, "l'exemple minimal du controle"
     # La liste est la derniere section : c'est ce que l'agent relit en
     # dernier avant de conclure.
     assert manuel.rstrip().rsplit("\n## ", 1)[1].startswith("Avant de declarer")
