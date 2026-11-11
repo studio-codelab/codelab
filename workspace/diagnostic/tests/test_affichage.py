@@ -2792,3 +2792,103 @@ console.log(JSON.stringify(sorties));
     assert remplace["etapes"][0]["voix"] == "Voici Wine Manager, ta cave."
     assert remplace["etapes"][1]["voix"] == "Le wine-manager-bis reste."
     assert garde["titre"] == "Ma cave"
+
+
+# ------------- Le texte au telephone, la finition des boutons -------------
+#
+# Vecu : « Ameliore completement le rendu sur telephone. Le texte s'affiche
+# parfois mal, notamment dans les widgets » ; « Je veux que le rendu soit
+# premium, des boutons de qualite ».
+
+def _bloc_telephone(page):
+    """Le dernier bloc @media (max-width:760px) du CSS du panneau : celui
+    qui regle le hub et le texte au telephone."""
+    return page.split("@media (max-width:760px){")[-1].split("\n}\n")[0]
+
+
+def test_le_nom_a_la_une_tient_dans_sa_carte():
+    """Au telephone, « Atlas des randonnees alpines » en 34 px debordait de
+    la carte « A la une », et la petite icone, de la couleur du bandeau,
+    laissait une lettre seule sous le surtitre."""
+    import re as _re
+    page = _page_panneau("dashboard.html")
+    regle = page.split(".bw-une-nom{")[1].split("}")[0]
+    assert "-webkit-line-clamp:2" in regle and "overflow:hidden" in regle
+    assert "overflow-wrap:anywhere" in regle and "min-width:0" in regle
+    assert float(_re.search(r"line-height:([0-9.]+)", regle).group(1)) >= 1.1
+    assert ".bw-apercu.sans-direct + .bw-une-pied .bw-une-ligne img{display:none}" in page
+
+
+def test_au_telephone_le_texte_se_coupe_au_lieu_de_deborder():
+    """Les noms de tuile prennent trois lignes et se coupent dans le mot ;
+    les onglets d'une fiche defilent au lieu de sortir de l'ecran ; le nom
+    d'une barre de la vue d'ensemble a sa ligne ; l'adresse d'un compte se
+    coupe au lieu de cacher « jamais connecte »."""
+    tel = _bloc_telephone(_page_panneau("dashboard.html"))
+    nom = tel.split(".bento-carte-nom{")[1].split("}")[0]
+    assert "-webkit-line-clamp:3" in nom and "overflow-wrap:anywhere" in nom
+    assert "line-height" not in nom          # celle de la regle de base (jambages)
+    assert "#fiche-onglets{overflow-x:auto;" in tel
+    assert "#fiche-onglets button{flex:none;white-space:nowrap}" in tel
+    assert ".bar-name{grid-column:1 / -1}" in tel
+    assert ".us-meta{white-space:normal;overflow-wrap:anywhere}" in tel
+
+
+def test_les_boutons_repondent_au_doigt():
+    """Un bouton s'enfonce a l'appui, a une hauteur reguliere, et 44 px au
+    doigt (la cible tactile d'Apple et de Google)."""
+    page = _page_panneau("dashboard.html")
+    assert ".btn:not(:disabled):active,.icon-btn:not(:disabled):active{transform:scale(.97)}" in page
+    assert ".btn{min-height:36px;font-weight:600}" in page
+    doigt = page.split("@media (pointer:coarse){\n  .btn{")[1].split("}")[0]
+    assert "min-height:44px" in doigt
+
+
+def test_la_fiche_porte_le_nom_affiche():
+    """« atlas » en titre d'une fiche que le hub appelle « Atlas des
+    randonnees alpines » faisait douter d'etre sur la bonne."""
+    page = _page_panneau("dashboard.html")
+    assert "$('fa-nom').textContent=nomAffiche(a);" in page
+
+
+def test_un_telephone_montre_les_applications_en_icones(deux_espaces):
+    """Vecu : « les applications plutot sous forme d'icone pour la version
+    mobile ». Un telephone part des icones ; « cartes » dans le cookie n'y
+    compte que si elle a ete choisie (jeton « choisies ») -- le panneau
+    ecrivait tous les reglages des qu'on changeait la couleur, et ce
+    « cartes »-la n'etait que la valeur par defaut."""
+    c = deux_espaces
+    iphone = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Mobile/15E148"}
+    android = {"User-Agent": "Mozilla/5.0 (Linux; Android 15; Pixel 9) Mobile Safari/537.36"}
+    bureau = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) Safari/605.1.15"}
+
+    def tete(entetes):
+        return re.search(r"<html[^>]*>", c.get("/login", headers=entetes).get_data(as_text=True)).group(0)
+
+    c.delete_cookie("codelab-hub")
+    assert 'data-tuiles="icones"' in tete(iphone)
+    assert 'data-tuiles="icones"' in tete(android)
+    assert 'data-tuiles="cartes"' in tete(bureau)
+    c.set_cookie("codelab-hub", "cartes.horizontal.melanges.prune")
+    t = tete(iphone)
+    assert 'data-tuiles="icones"' in t and 'data-couleurs="prune"' in t
+    assert "data-tuiles-choisies" not in t
+    assert 'data-tuiles="cartes"' in tete(bureau)
+    c.set_cookie("codelab-hub", "cartes.horizontal.melanges.prune.choisies")
+    t = tete(iphone)
+    assert 'data-tuiles="cartes"' in t and "data-tuiles-choisies" in t
+    page = _page_panneau("dashboard.html")
+    assert "if('tuiles' in reglages) racine.setAttribute('data-tuiles-choisies', '');" in page
+    assert ".concat(racine.hasAttribute('data-tuiles-choisies') ? ['choisies'] : [])" in page
+
+
+def test_au_telephone_chaque_taille_de_widget_a_sa_forme():
+    """Vecu : « Gere la taille des widgets sur telephone ». Moyen et Grand
+    prenaient la meme place ; un widget presque vide laissait un grand
+    blanc (220 px, 400 pour « A la une »)."""
+    tel = _bloc_telephone(_page_panneau("dashboard.html"))
+    assert ".bw-moyen{min-height:150px}" in tel
+    assert ".bw-grand{min-height:300px}" in tel
+    assert ".bw-une{min-height:0}" in tel
+    assert ".bw-grand .bw-apercu{min-height:280px}" in tel
+    assert "min-height:400px" not in tel and "min-height:220px" not in tel

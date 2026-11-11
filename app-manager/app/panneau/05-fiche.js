@@ -190,7 +190,10 @@ function peindreFiche(){
     : 'Sur les deux dernières minutes environ, relevé toutes les 5 secondes.';
   peindreCauseFiche(a);
   poserSource($('fa-icone'), icone(a.name));
-  $('fa-nom').textContent=a.name;
+  /* Le nom affiche, comme sur la tuile du hub : « atlas » en titre d'une
+     fiche que le hub appelle « Atlas des randonnees alpines » faisait
+     douter d'etre sur la bonne. Le nom technique reste dans l'adresse. */
+  $('fa-nom').textContent=nomAffiche(a);
   $('fa-sous').textContent=a.description || 'Aucune description';
   const [cl,txt]=etatApp(a);
   $('fa-etat').className='pill '+cl; $('fa-etat').innerHTML='<i></i>'+txt;
@@ -277,7 +280,7 @@ function peindreActionsFiche(a, prive, parDefaut){
        public offrirait a un visiteur anonyme l'etat des lieux complet de
        l'installation. */
   }else if(!prive || adressePublique){
-    b.push(`<button class="btn btn-quiet" data-agir="app-visibilite" data-cible="${esc(a.name)}">
+    b.push(`<button class="btn btn-default" data-agir="app-visibilite" data-cible="${esc(a.name)}">
       ${prive?'Rendre publique':'Rendre privée'}</button>`);
   }
   if(a.running) b.push(`<a class="btn btn-ouvrir" href="${lienOuverture(a)}">${svgOuvrir}Ouvrir</a>`);

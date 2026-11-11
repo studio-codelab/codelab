@@ -50,11 +50,16 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     « Bento » n'en diffèrent que par ces réglages, gardés dans un cookie et posés par le serveur avant
     le premier affichage :
     - **Applications** : en *cartes* (nom, état, description) ou en *icônes* seules, comme un écran
-      d'accueil (cerclées si l'application ne répond pas ; un widget y prend 2×2, 4×2 ou 4×4 cases) ;
+      d'accueil (cerclées si l'application ne répond pas ; un widget y prend 2×2, 4×2 ou 4×4 cases).
+      **Un téléphone part des icônes**, quatre par ligne, tant qu'on n'a pas choisi soi-même les
+      cartes sur ce navigateur ;
     - **Défilement** (grand écran) : *horizontal* (la mosaïque défile de côté, la page jamais vers
       le bas) ou *vertical* (la grille remplit la largeur, la page défile) ; le téléphone défile
       toujours vers le bas ;
-    - **Widgets** : *mêlés* aux applications, ou *en haut*, dans leur propre grille ;
+    - **Widgets** : *mêlés* aux applications, ou *en haut*, dans leur propre grille. Au téléphone,
+      chaque taille a sa forme : *Petit* sur une demi-largeur, *Moyen* en bande basse sur toute la
+      largeur, *Grand* deux fois plus haut ; un widget plus rempli grandit au lieu de couper son
+      texte ;
     - **Couleurs** : un nuancier pour la couleur d'accent (Lagon, Océan, Forêt, Prune, Corail,
       Ardoise, Framboise, Ambre, Indigo, Olive), en clair comme en sombre, et **Personnalisée** :
       n'importe quelle teinte, dont le panneau calcule la version claire et la sombre, toujours
@@ -167,6 +172,10 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     suit le réglage « Défilement ».
   - **Aucune barre de défilement visible**, sur ordinateur, tablette et téléphone, iPhone compris
     (au doigt, c'est un bloc intérieur qui défile : iOS ne laisse pas masquer celle de la page).
+  - **Texte lisible au téléphone** : un nom long passe à la ligne (trois lignes sur une tuile, deux
+    « À la une ») au lieu de déborder ; les onglets d'une fiche défilent au doigt ; une adresse
+    mail se coupe plutôt que de cacher la suite. **Boutons** de hauteur régulière, 44 px au doigt,
+    en relief léger, qui s'enfoncent à l'appui.
   - **Hors ligne** : l'application s'ouvre quand même, sur « Serveur injoignable », retente toutes les
     5 s et revient d'elle-même. Rien n'est mis en cache que cette page (ni pages du panneau, ni
     données). Il faut une adresse en `https` (ou `localhost`) : c'est une exigence des navigateurs.

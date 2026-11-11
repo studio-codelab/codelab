@@ -66,8 +66,12 @@ function appliquerReglagesHub(reglages){
   const racine = document.documentElement;
   for(const [cle, v] of Object.entries(reglages))
     if(REGLAGES_HUB[cle] && REGLAGES_HUB[cle].includes(v)) racine.setAttribute('data-'+cle, v);
+  /* Cartes ou icones choisies a la main : le jeton « choisies » le dit au
+     serveur, qui sinon met un telephone en icones (TUILES_CHOISIES). */
+  if('tuiles' in reglages) racine.setAttribute('data-tuiles-choisies', '');
   const perso = couleurPerso();
-  const valeurs = Object.keys(REGLAGES_HUB).map(reglageHub).concat(perso ? ['x'+perso] : []).join('.');
+  const valeurs = Object.keys(REGLAGES_HUB).map(reglageHub).concat(perso ? ['x'+perso] : [])
+    .concat(racine.hasAttribute('data-tuiles-choisies') ? ['choisies'] : []).join('.');
   try{ document.cookie='codelab-hub='+valeurs+';path=/;max-age=31536000;SameSite=Lax'; }catch(e){}
   majSensDuHub();
   majReglagesHub();

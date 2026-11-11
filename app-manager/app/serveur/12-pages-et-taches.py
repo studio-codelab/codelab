@@ -249,6 +249,33 @@ REGLAGES_HUB = {
 }
 
 
+# LES APPLICATIONS EN ICONES SUR UN TELEPHONE. Vecu : « les applications
+# plutot sous forme d'icone pour la version mobile ». Une carte y fait 170 px
+# de large : le nom tient en trois lignes, la description est coupee, et six
+# applications prennent deux ecrans. Quatre icones par ligne en montrent
+# vingt d'un coup d'oeil, comme l'ecran d'accueil du telephone.
+# Un telephone (est_un_telephone, l'en-tete User-Agent) part donc des icones,
+# tant que ce navigateur n'a pas CHOISI la forme des tuiles. Le choix se lit
+# au jeton TUILES_CHOISIES du cookie, que le panneau n'ecrit qu'apres un clic
+# sur « Cartes » ou « Icones » (appliquerReglagesHub).
+# ESSAYE ET ECARTE : lire « cartes » dans le cookie comme un choix -- le
+# panneau ecrit tous les reglages des qu'on en change un (la couleur, par
+# exemple) : « cartes » y etait la valeur par defaut, pas une preference, et
+# le telephone serait reste en cartes.
+TUILES_CHOISIES = "choisies"
+
+
+def _jetons_du_hub():
+    """Les jetons du cookie codelab-hub : un par reglage, plus la couleur
+    personnalisee et TUILES_CHOISIES. Au-dela, rien n'est lu."""
+    return (request.cookies.get("codelab-hub") or "").split(".")[:len(REGLAGES_HUB) + 2]
+
+
+def tuiles_choisies():
+    """Ce navigateur a-t-il choisi lui-meme la forme des tuiles ?"""
+    return TUILES_CHOISIES in _jetons_du_hub()
+
+
 def reglages_du_hub():
     """Les reglages du hub, lus dans le cookie codelab-hub.
 
@@ -259,9 +286,16 @@ def reglages_du_hub():
     la page.
     """
     reglages = {cle: valeurs[0] for cle, valeurs in REGLAGES_HUB.items()}
-    brut = request.cookies.get("codelab-hub") or ""
-    # Un jeton de plus que de reglages : la couleur personnalisee.
-    for valeur in brut.split(".")[:len(REGLAGES_HUB) + 1]:
+    telephone = est_un_telephone(request.headers.get("User-Agent"))
+    if telephone:
+        reglages["tuiles"] = "icones"
+    # Deux jetons de plus que de reglages : la couleur personnalisee et
+    # TUILES_CHOISIES. Sur un telephone, la forme des tuiles du cookie ne
+    # compte que si elle a ete choisie (voir TUILES_CHOISIES).
+    choisies = tuiles_choisies()
+    for valeur in _jetons_du_hub():
+        if telephone and not choisies and valeur in REGLAGES_HUB["tuiles"]:
+            continue
         for cle, valeurs in REGLAGES_HUB.items():
             if valeur in valeurs:
                 reglages[cle] = valeur
@@ -274,7 +308,7 @@ def reglages_du_hub():
 
 def couleur_perso():
     """La couleur personnalisee du cookie (six chiffres hexadecimaux), ou ""."""
-    for valeur in (request.cookies.get("codelab-hub") or "").split(".")[:len(REGLAGES_HUB) + 1]:
+    for valeur in _jetons_du_hub():
         if valeur.startswith("x") and COULEUR_PERSO.fullmatch(valeur[1:]):
             return valeur[1:].upper()
     return ""
@@ -290,6 +324,10 @@ def avec_style(page):
     reglages = reglages_du_hub()
     attributs = ' data-style="design" data-variante="bento"' + "".join(
         f' data-{cle}="{valeur}"' for cle, valeur in reglages.items())
+    # Le choix de la forme des tuiles, pour que le panneau le reecrive dans
+    # le cookie (un booleen calcule ici, rien du client n'entre dans la page).
+    if tuiles_choisies():
+        attributs += " data-tuiles-choisies"
     page = page.replace('<html lang="fr">', '<html lang="fr"' + attributs + '>', 1)
     # La couleur personnalisee : sa feuille, juste avant </head> -- donc apres
     # theme.css, dont elle remplace l'accent a specificite egale. Six chiffres
