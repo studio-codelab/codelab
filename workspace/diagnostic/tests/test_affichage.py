@@ -2911,3 +2911,37 @@ def test_un_mot_a_l_admin_garde_sa_zone_de_texte_en_taille_moyen():
     etroit = bloc.split("@container (max-width:460px){")[1]
     assert ".bw-titre{position:absolute;" in etroit
     assert "placeholder=\"Pour l'admin : une idée, un souci, une demande d'accès.\"" in page
+
+
+def test_le_tournage_s_arrete_devant_un_formulaire_de_connexion(tmp_path):
+    """Vecu : « creer des videos de presentation sans avoir a renseigner des
+    credentials ». Le laissez-passer donne l'identite CodeLab ; une
+    application qui garde son propre ecran de connexion l'ignore. Plutot que
+    de filmer ce formulaire (ou d'ecrire un mot de passe dans le scenario),
+    codelab video s'arrete et dit de brancher codelab_auth."""
+    import shutil
+    import subprocess
+    if not shutil.which("node"):
+        pytest.skip("node absent")
+    source = open(os.path.join(_racine_depot(), "dev", "video", "fabriquer.mjs"), encoding="utf-8").read()
+    fonction = source[source.index("function formulaireDeConnexion"):]
+    fonction = fonction[:fonction.index("\n}\n") + 2]
+    essai = tmp_path / "essai.mjs"
+    essai.write_text(fonction + """
+const cas = [
+  ['<form><input name="u"><input type="password" name="p"></form>', true],
+  ["<input TYPE='password'>", true],
+  ['<input type=password>', true],
+  ['<p>Mot de passe oublie ?</p><input type="text">', false],
+  ['', false],
+];
+for (const [html, attendu] of cas)
+  if (formulaireDeConnexion(html) !== attendu) { console.log('KO', html); process.exit(1); }
+console.log('ok');
+""")
+    r = subprocess.run(["node", str(essai)], capture_output=True, text=True)
+    assert r.stdout.strip() == "ok", r.stdout + r.stderr
+    tournage = source.split("if (ticket) {")[1].split("\n  }\n")[0]
+    assert "formulaireDeConnexion(await sonde.text())" in tournage and "echouer(" in tournage
+    manuel = open(os.path.join(_racine_depot(), "dev", "AGENTS.md"), encoding="utf-8").read()
+    assert "**Obligatoire des que l'application a ses propres comptes**" in manuel

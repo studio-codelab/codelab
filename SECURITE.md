@@ -319,6 +319,11 @@ Sans lui, les réglages chiffrés deviennent illisibles.
     `9011` ou `9012` n'est jamais locale, quels que soient ses en-têtes. Ces ports n'écoutent que
     sur `127.0.0.1`. `X-Forwarded-For`, que tailscaled remplace par l'adresse du visiteur, n'y est
     cru que pour la limite des essais, et nulle part ailleurs.
+12 quinquies. Une application « Réseau local » ne s'ouvre sans compte qu'à une requête du réseau
+    local (`client_est_local`) : par Funnel, derrière un proxy non déclaré ou depuis une adresse
+    publique, elle est privée (règle 12). Aucun en-tête ne fait d'une requête d'internet une
+    requête locale. « Publique » reste refusée tant que le serveur n'a pas d'adresse publique, par
+    le bouton comme par le formulaire de configuration.
 13. Toute route qui modifie quelque chose exige le jeton anti-falsification de la session, sauf les
     routes de connexion et d'invitation (Face ID compris), et celle du tournage, qui n'a pas de session et se prouve
     par la clé en en-tête (12 ter).

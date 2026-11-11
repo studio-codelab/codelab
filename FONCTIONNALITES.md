@@ -319,8 +319,13 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 
 **Partager**
 
-- **Visibilité** : privée (comptes autorisés) ou publique (lien partageable, possible seulement si une
-  adresse publique est déclarée).
+- **Visibilité**, trois choix :
+  - *Privée* : comptes autorisés seulement.
+  - *Réseau local* : ouverte sans connexion depuis chez toi ; depuis internet (Tailscale Funnel
+    compris), privée.
+  - *Publique* : lien partageable, possible seulement si une adresse publique est déclarée.
+
+  Sans adresse publique, le bouton de la fiche propose « Ouvrir au réseau local ».
 - **Se connecter avec CodeLab** (SSO) : l'application reconnaît la personne sans formulaire, grâce
   aux modules `codelab_auth.py` et `codelab-auth.js`.
 

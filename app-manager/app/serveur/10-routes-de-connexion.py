@@ -2609,6 +2609,7 @@ def api_app_acces(name):
     return jsonify({
         "application": name,
         "publique": (apps[name].get("visibility") or "privee") == "publique",
+        "locale": apps[name].get("visibility") == VISIBILITE_LOCALE,
         "comptes": [{"nom": nom,
                      "acces": name in (c.get("projets") or []),
                      "email": c.get("email") or ""}

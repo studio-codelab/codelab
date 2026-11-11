@@ -575,11 +575,12 @@ def api_add():
     build_command = (d.get("build_command") or "").strip()
     max_memory_mb = d.get("max_memory_mb") or None
     vis = d.get("visibility") if d.get("visibility") in VISIBILITES else VISIBILITE_PUBLIQUE
-    # Sans adresse publique declaree, une application neuve nait privee --
-    # y compris si le formulaire demande autre chose. C'est le defaut sur
-    # lequel on ne peut pas se tromper : elle s'ouvre en une bascule, alors
-    # qu'une application ouverte par megarde ne se referme qu'apres coup.
-    if not adresse_publique():
+    # Sans adresse publique declaree, une application neuve ne nait pas
+    # publique -- y compris si le formulaire le demande : privee par defaut,
+    # ou « locale » si c'est le choix. C'est le defaut sur lequel on ne peut
+    # pas se tromper : elle s'ouvre en une bascule, alors qu'une application
+    # ouverte par megarde ne se referme qu'apres coup.
+    if not adresse_publique() and vis == VISIBILITE_PUBLIQUE:
         vis = VISIBILITE_PRIVEE
     if est_categorie_codelab(d.get("categorie")):
         return jsonify({"error": f"« {CATEGORIE_CODELAB} » est réservée aux applications de CodeLab."}), 400
@@ -685,6 +686,11 @@ def api_edit(n):
     apps[n]["description"] = description_propre(d.get("description"))
     apps[n]["categorie"] = categorie_valide(d.get("categorie"))
     if d.get("visibility") in VISIBILITES:
+        # La meme regle que le bouton de la fiche (refus_visibilite) : le
+        # formulaire n'est pas un detour pour rendre publique.
+        refus = refus_visibilite(visibilite(apps[n]), d["visibility"])
+        if refus:
+            return jsonify({"error": refus}), 400
         apps[n]["visibility"] = d["visibility"]
     save(apps)
 
@@ -823,18 +829,14 @@ def api_visibility(n):
     d = request.get_json(force=True, silent=True) or {}
     vis = d.get("visibility")
     if vis not in VISIBILITES:
-        # Sans valeur explicite, on bascule d'un etat a l'autre.
-        vis = (VISIBILITE_PRIVEE if visibilite(apps[n]) == VISIBILITE_PUBLIQUE
-               else VISIBILITE_PUBLIQUE)
-    # Rendre publique une application sur un serveur que personne ne peut
-    # joindre ne partage rien : cela retire seulement l'authentification.
-    # Une application DEJA publique reste modifiable dans l'autre sens --
-    # on ne bloque jamais le chemin qui referme.
-    if vis == VISIBILITE_PUBLIQUE and not adresse_publique():
-        return jsonify({"error": "Ce serveur n'a encore jamais été ouvert depuis "
-                                 "internet : rendre une application publique ne "
-                                 "ferait que retirer l'authentification. Ouvre le "
-                                 "panneau une fois par ton nom de domaine."}), 400
+        # Sans valeur explicite, on bascule : une application ouverte (publique
+        # ou locale) se referme ; une privee s'ouvre -- au reseau local quand
+        # le serveur n'a pas d'adresse publique.
+        vis = (VISIBILITE_PRIVEE if visibilite(apps[n]) != VISIBILITE_PRIVEE
+               else VISIBILITE_PUBLIQUE if adresse_publique() else VISIBILITE_LOCALE)
+    refus = refus_visibilite(visibilite(apps[n]), vis)
+    if refus:
+        return jsonify({"error": refus}), 400
     apps[n]["visibility"] = vis
     save(apps)
     return jsonify({"ok": True, "visibility": vis})

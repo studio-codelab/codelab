@@ -841,18 +841,58 @@ flask_app.session_interface = SessionSelonLaConnexion()
 # un reseau de confiance, cela va de soi ; le jour ou le port est publie, cela
 # revient a offrir chaque projet a tout internet.
 #
-# Deux etats, pas trois : "publique" (le comportement historique, et le defaut
-# pour une application deja declaree qui n'a pas le champ) et "privee", qui
-# exige la meme session que le panneau. Arreter une application reste le
-# moyen de la retirer completement -- inutile d'un troisieme etat pour cela.
+# Trois etats : "publique" (le comportement historique, et le defaut pour
+# une application deja declaree qui n'a pas le champ), "privee", qui exige la
+# meme session que le panneau, et "locale" : publique sur le reseau local,
+# privee partout ailleurs.
 VISIBILITE_PUBLIQUE = "publique"
 VISIBILITE_PRIVEE = "privee"
-VISIBILITES = (VISIBILITE_PUBLIQUE, VISIBILITE_PRIVEE)
+VISIBILITE_LOCALE = "locale"
+VISIBILITES = (VISIBILITE_PUBLIQUE, VISIBILITE_PRIVEE, VISIBILITE_LOCALE)
 
 
 def visibilite(a):
     v = (a or {}).get("visibility")
     return v if v in VISIBILITES else VISIBILITE_PUBLIQUE
+
+
+# OUVERTE SANS COMPTE : publique partout, ou « locale » vue du reseau local.
+# Vecu : « Je dois pouvoir ou non rendre public une application sur mon
+# reseau local seulement. » Sans adresse publique, « publique » etait refusee
+# (elle n'aurait rien partage) ; et avec Tailscale Funnel, « publique »
+# l'aurait offerte a tout internet. « locale » s'ouvre sans connexion a la
+# maison et redevient privee hors de chez soi.
+# POURQUOI : le reseau se lit par client_est_local(), qui repond NON pour une
+#   requete de Funnel (ports 9011/9012, jamais un en-tete) et derriere un
+#   proxy non declare -- un visiteur d'internet n'entre donc pas sans compte,
+#   quel que soit l'en-tete qu'il forge.
+# REGLE : 12 et 12 quinquies de SECURITE.md.
+# DEPEND DE / PROTEGE AUSSI : proxy() (13-hub-et-proxy), seul endroit ou une
+#   application s'ouvre sans compte ; refus_visibilite() pour le choix.
+# ECARTE : une liste d'adresses IP par application -- l'adresse d'un
+#   telephone change, et le reseau local est deja la frontiere de
+#   l'administration (refus_admin_hors_reseau).
+# A SAVOIR : une version du panneau d'avant « locale » lit cette valeur
+#   inconnue comme « publique » (visibilite()) ; revenir en arriere demande
+#   de repasser ces applications en privee d'abord.
+def ouverte_sans_compte(a):
+    """L'application s'ouvre-t-elle, pour CETTE requete, sans session ?"""
+    v = visibilite(a)
+    return v == VISIBILITE_PUBLIQUE or (v == VISIBILITE_LOCALE and client_est_local())
+
+
+def refus_visibilite(avant, apres):
+    """Le message de refus d'un changement de visibilite, ou None.
+
+    Rendre publique une application sur un serveur que personne ne peut
+    joindre ne partage rien : cela retire seulement l'authentification --
+    « locale » est faite pour cela. Le chemin qui referme, et une valeur
+    inchangee, ne sont jamais bloques."""
+    if apres == VISIBILITE_PUBLIQUE and avant != VISIBILITE_PUBLIQUE and not adresse_publique():
+        return ("Ce serveur n'a encore jamais été ouvert depuis internet : « Publique » "
+                "ne ferait que retirer l'authentification. Choisis « Réseau local » pour "
+                "l'ouvrir sans connexion chez toi.")
+    return None
 
 
 def dossiers_deja_pris(sauf=None):

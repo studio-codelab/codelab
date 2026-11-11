@@ -30,6 +30,11 @@ const DUREE_TITRE = 3.5, DUREE_FIN = 3, FONDU = 0.5;
 const VOIX = process.env.CODELAB_VOIX || "/usr/local/share/codelab/voix/fr_FR-siwis-medium.onnx";
 
 function dire(texte) { console.log(`[codelab video] ${texte}`); }
+// Un champ mot de passe dans la premiere page : l'application demande ses
+// propres identifiants (voir le tournage).
+function formulaireDeConnexion(html) {
+  return /<input\b[^>]*\btype\s*=\s*["']?password\b/i.test(String(html || "").slice(0, 400000));
+}
 function echouer(texte) { console.error(`codelab video: ${texte}`); process.exit(1); }
 function lancer(cmd, args, options = {}) {
   const r = spawnSync(cmd, args, { encoding: "utf-8", ...options });
@@ -238,6 +243,20 @@ try {
     const r = await contexte.request.get(entree.href, { maxRedirects: 0 });
     dire(r.status() === 302 ? "connecte par laissez-passer CodeLab (dix minutes)."
                             : `laissez-passer refuse (HTTP ${r.status()}).`);
+    // Vecu : « des videos de presentation sans avoir a renseigner des
+    // credentials ». Le laissez-passer donne l'identite signee de CodeLab ;
+    // une application qui a son propre ecran de connexion l'ignore et
+    // demande un mot de passe -- le film montrerait ce formulaire. Le
+    // panneau ne peut pas la faire entrer a sa place sans connaitre ses
+    // identifiants, donc sans les stocker : c'est l'application qui doit
+    // accepter « Se connecter avec CodeLab » (section 9 du manuel). On
+    // s'arrete AVANT de filmer, en le disant.
+    const sonde = await contexte.request.get(scenario.adresse);
+    if (formulaireDeConnexion(await sonde.text()))
+      echouer(`« ${scenario.titre || scenario.adresse} » affiche son propre formulaire de connexion `
+        + "malgre le laissez-passer : elle n'accepte pas encore « Se connecter avec CodeLab ». "
+        + "Branche codelab_auth (section 9 du AGENTS.md du projet : connexion silencieuse), puis relance "
+        + "codelab video. Aucun mot de passe a mettre dans le scenario.");
   }
   // Un curseur VISIBLE : un navigateur sans ecran n'en dessine pas, et une
   // demonstration ou les clics viennent de nulle part se suit mal.

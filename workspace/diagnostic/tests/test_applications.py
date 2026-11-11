@@ -2368,3 +2368,59 @@ def test_un_droit_ne_survit_pas_a_l_application_supprimee(hub, monkeypatch):
     assert c.post("/api/app/secret/renommer", json={"nom": "Coffre"}).status_code == 200
     assert app.lire_utilisateurs()["marie"]["projets"] == ["coffre"]
     assert "coffre" in mes()
+
+
+def test_une_application_ouverte_au_reseau_local_reste_privee_depuis_internet(hub, monkeypatch):
+    """Vecu : « Je dois pouvoir ou non rendre public une application sur mon
+    reseau local seulement. » « locale » s'ouvre sans compte depuis le reseau
+    local ; depuis internet -- adresse publique, ou Tailscale Funnel (reconnu
+    a son port, jamais a un en-tete) -- elle redevient privee."""
+    c = hub
+    monkeypatch.setattr(app, "adresse_publique", lambda: "")
+    apps = app.load()
+    apps["secret"]["visibility"] = "locale"
+    app.save(apps)
+    maison = {"REMOTE_ADDR": "192.168.1.10"}
+    internet = {"REMOTE_ADDR": "203.0.113.9"}
+    funnel = {"REMOTE_ADDR": "127.0.0.1", "SERVER_PORT": str(app.TUNNEL_PORT_APPS)}
+
+    def ouverte(client, env):
+        r = client.get("/secret/", environ_overrides=env)
+        return r.status_code not in (302, 401, 403), r.status_code
+
+    assert ouverte(c, maison)[0]
+    assert not ouverte(c, internet)[0]
+    assert not ouverte(c, funnel)[0]
+    # Un en-tete forge ne fait pas d'internet un reseau local.
+    assert not ouverte(c, dict(internet, HTTP_X_FORWARDED_FOR="192.168.1.10"))[0]
+    # Marie n'a pas le droit sur « secret » : chez elle elle entre, pas dehors.
+    u = app.flask_app.test_client()
+    _connecte(u, "marie", "mot-de-passe-long")
+    assert ouverte(u, maison)[0]
+    assert u.get("/secret/", environ_overrides=internet).status_code == 403
+    # Temoin : une application privee reste fermee meme a la maison.
+    assert app.flask_app.test_client().get("/compta/", environ_overrides=maison).status_code == 302
+
+
+def test_sans_adresse_publique_on_ouvre_au_reseau_local(hub, monkeypatch):
+    """Sans adresse publique, « Publique » ne ferait que retirer
+    l'authentification : refusee par le bouton ET par le formulaire de
+    configuration (qui l'acceptait). La bascule ouvre alors au reseau local,
+    et referme toujours."""
+    c = hub
+    monkeypatch.setattr(app, "adresse_publique", lambda: "")
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    r = c.post("/api/visibility/secret", json={})
+    assert r.status_code == 200 and r.get_json()["visibility"] == "locale"
+    assert c.post("/api/visibility/secret", json={}).get_json()["visibility"] == "privee"
+    assert c.post("/api/visibility/secret", json={"visibility": "publique"}).status_code == 400
+    assert c.post("/api/visibility/secret", json={"visibility": "locale"}).status_code == 200
+    r = c.put("/api/app/secret", json={"path": "/w/c", "command": "x", "visibility": "publique"})
+    assert r.status_code == 400 and app.load()["secret"]["visibility"] == "locale"
+    # Une application deja publique garde son choix et se referme.
+    assert c.post("/api/visibility/vitrine", json={"visibility": "publique"}).status_code == 200
+    assert c.post("/api/visibility/vitrine", json={}).get_json()["visibility"] == "privee"
+    assert c.get("/api/apps/secret/acces").get_json()["locale"] is True
+    page = _page_panneau("dashboard.html")
+    assert '<button data-v="locale" onclick="setVisEdit(\'locale\')">Réseau local</button>' in page
+    assert '<button data-v="locale" onclick="setVisAdd(\'locale\')">Réseau local</button>' in page

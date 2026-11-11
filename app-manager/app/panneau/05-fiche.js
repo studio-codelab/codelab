@@ -60,11 +60,14 @@ async function chargerAcces(nom){
      changerait rien, et laisser croire le contraire serait pire que de ne
      rien afficher. */
   const pub=$('ac-publique');
-  pub.style.display = d.publique ? 'block' : 'none';
+  pub.style.display = d.publique || d.locale ? 'block' : 'none';
   pub.innerHTML = d.publique
     ? '<b>Cette application est publique</b> : elle s\'ouvre sans compte, y compris par '
       + 'quelqu\'un qui n\'en a pas. Ces autorisations ne reprendront effet que si tu la '
       + 'repasses en privée (onglet <b>Configuration</b>).'
+    : d.locale
+    ? '<b>Cette application est ouverte au réseau local</b> : chez toi, elle s\'ouvre sans '
+      + 'compte. Depuis internet, seuls les comptes cochés ici y entrent.'
     : '';
 
   if(!comptes.length){
@@ -198,8 +201,9 @@ function peindreFiche(){
   const [cl,txt]=etatApp(a);
   $('fa-etat').className='pill '+cl; $('fa-etat').innerHTML='<i></i>'+txt;
   const prive=a.visibility==='privee';
-  $('fa-vis').className='pill '+(prive?'priv':'pub');
-  $('fa-vis').innerHTML='<i></i>'+(prive?'Privé':'Public');
+  const [vc,vt]=pillVis(a);
+  $('fa-vis').className='pill '+vc;
+  $('fa-vis').innerHTML='<i></i>'+vt;
 
   $('fa-url').textContent = externe ? a.url : '/'+a.name+'/';
   /* Le texte dit ou le service VIT, le lien passe par la porte du panneau :
@@ -213,8 +217,9 @@ function peindreFiche(){
     : (!a.running ? 'Arrêtée'
        : (a.listening===false ? 'Le port ne répond pas' : 'Le port répond'));
   $('fa-ecoute-large').style.display = (!externe && a.running && a.ecoute_large) ? '' : 'none';
-  $('fa-vis-txt').textContent = prive
-    ? 'Privée — session requise' : 'Publique — ouverte a tous';
+  $('fa-vis-txt').textContent = prive ? 'Privée — session requise'
+    : a.visibility==='locale' ? 'Réseau local — sans connexion chez toi seulement'
+    : 'Publique — ouverte à tous';
   /* Un service externe n'a ni dossier ni commande : le panneau ne le lance
      pas. Mettre « — » partout serait dire qu'on ne sait pas, alors qu'il n'y
      a rien a savoir. */
@@ -273,15 +278,17 @@ function peindreActionsFiche(a, prive, parDefaut){
   if(!a.par_defaut) b.push(`<button class="btn btn-refaire" data-agir="app-archiver" data-cible="${esc(a.name)}">Archiver</button>`);
   /* « Rendre publique » n'est propose que si le serveur a une adresse
      publique declaree. Sinon le mot promet un partage qui n'existe pas :
-     cela ne ferait que retirer l'authentification. Le chemin qui REFERME,
-     lui, reste toujours ouvert. */
+     cela ne ferait que retirer l'authentification -- le bouton propose
+     alors d'ouvrir au reseau local (le serveur bascule de la meme facon,
+     api_visibility). Le chemin qui REFERME, lui, reste toujours ouvert.
+     Les trois choix sont dans Configuration. */
   if(parDefaut){
     /* Rien : une application par defaut reste privee. Le diagnostic rendu
        public offrirait a un visiteur anonyme l'etat des lieux complet de
        l'installation. */
-  }else if(!prive || adressePublique){
+  }else{
     b.push(`<button class="btn btn-default" data-agir="app-visibilite" data-cible="${esc(a.name)}">
-      ${prive?'Rendre publique':'Rendre privée'}</button>`);
+      ${!prive ? 'Rendre privée' : adressePublique ? 'Rendre publique' : 'Ouvrir au réseau local'}</button>`);
   }
   if(a.running) b.push(`<a class="btn btn-ouvrir" href="${lienOuverture(a)}">${svgOuvrir}Ouvrir</a>`);
   $('fa-actions').innerHTML=b.join('');
@@ -301,11 +308,10 @@ function chargerConfigFiche(){
   $('e-mem').value=a.max_memory_mb||'';
   $('e-path').textContent=a.path;
   setVisEdit(a.visibility||'publique');
-  /* Meme regle que le bouton du haut : on n'offre pas d'ouvrir ce qu'on ne
-     peut pas partager. Une application deja publique garde son choix, pour
-     pouvoir la refermer. */
-  $('e-vis-zone').style.display =
-    (adressePublique || (a.visibility||'publique')==='publique') ? '' : 'none';
+  /* Meme regle que le bouton du haut : « Publique » n'est offert que si le
+     serveur a une adresse publique (une application deja publique le garde,
+     pour pouvoir la refermer). Privee et reseau local, toujours. */
+  montrerPublique('e-vis-toggle', adressePublique || (a.visibility||'publique')==='publique');
   $('e-err').style.display='none';
   $('e-logo-err').style.display='none';
   logoRafraichir();
@@ -629,9 +635,10 @@ function openAdd(){
   ['f-name','f-cmd','f-build','f-mem','f-desc'].forEach(i=>$(i).value='');
   $('a-s').textContent=ROOT;
   optionsCategorie('f-cat', '');
-  /* Sans adresse publique declaree, une application neuve nait privee, et le
-     choix ne s'affiche pas : le serveur refuserait de toute facon. */
-  $('f-vis-zone').style.display = adressePublique ? '' : 'none';
+  /* Sans adresse publique declaree, une application neuve nait privee, et
+     « Publique » ne s'offre pas : le serveur la refuserait. Reseau local
+     reste un choix. */
+  montrerPublique('f-vis-toggle', !!adressePublique);
   setVisAdd(adressePublique ? 'publique' : 'privee');
   $('ov-add').classList.add('show');
   browse(ROOT);
@@ -666,6 +673,9 @@ async function browse(p){
 let visAdd='publique', visEdit='publique';
 function peindreVis(id, valeur){
   document.querySelectorAll('#'+id+' button').forEach(b=>b.classList.toggle('on', b.dataset.v===valeur));
+}
+function montrerPublique(id, oui){
+  const b=document.querySelector('#'+id+' [data-v="publique"]'); if(b) b.hidden=!oui;
 }
 function setVisAdd(v){ visAdd=v; peindreVis('f-vis-toggle', v); }
 function setVisEdit(v){ visEdit=v; peindreVis('e-vis-toggle', v); }

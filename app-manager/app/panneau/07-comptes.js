@@ -233,8 +233,10 @@ function usPeindreFiche(){
        est grisee : le serveur refuserait de toute facon de l'accorder. */
     const reservee = !!a.par_defaut;
     const coche = !reservee && c.projets.includes(a.name) ? ' checked' : '';
-    const prive = a.visibility==='privee';
-    return `<label class="choix-ligne proj-ligne${prive?'':' publique'}${reservee?' reservee':''}">
+    /* Une application ouverte au reseau local garde besoin de l'acces depuis
+       internet : seule une publique rend la case sans effet. */
+    const publique = (a.visibility||'publique')==='publique';
+    return `<label class="choix-ligne proj-ligne${publique?' publique':''}${reservee?' reservee':''}">
       <input type="checkbox" value="${esc(a.name)}"${coche}${reservee?' disabled':''}>
       <img src="${icone(a.name)}" alt="">
       <div class="proj-txt"><b>${esc(nomAffiche(a))}</b>

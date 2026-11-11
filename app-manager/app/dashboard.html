@@ -385,6 +385,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .pill.warn{color:var(--warn);background:var(--warn-bg)}
 .pill.pub{color:var(--warn);background:var(--warn-bg)}
 .pill.priv{color:var(--dim);background:var(--surface2)}
+.pill.loc{color:var(--accent);background:var(--accent-soft)}
 
 /* ------------------------------ boutons ------------------------------ */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
@@ -596,6 +597,7 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 
 .seg-toggle{display:flex;border:1px solid var(--line2);border-radius:var(--r-s);overflow:hidden;
  max-width:340px}
+.seg-toggle button[hidden]{display:none}
 .seg-toggle button{flex:1;padding:8px 6px;border:none;background:var(--surface2);color:var(--dim);
  font:inherit;font-size:12.5px;font-weight:550;cursor:pointer}
 .seg-toggle button+button{border-left:1px solid var(--line2)}
@@ -2577,7 +2579,7 @@ a.pj:hover{border-color:var(--accent)}
     <div class="ap-puces" id="ap-etats" role="group" aria-label="Filtrer par état"></div>
     <select class="ap-choix" id="ap-vis" aria-label="Filtrer par visibilité" onchange="apFiltrer()">
       <option value="">Toutes visibilités</option><option value="privee">Privées</option>
-      <option value="publique">Publiques</option></select>
+      <option value="locale">Réseau local</option><option value="publique">Publiques</option></select>
     <select class="ap-choix" id="ap-cat" aria-label="Filtrer par catégorie" onchange="apFiltrer()"></select>
     <select class="ap-choix" id="ap-tri" aria-label="Trier par" onchange="apTrier(this.value)">
       <option value="nom">Trier par nom</option><option value="etat">Trier par état</option>
@@ -2851,12 +2853,14 @@ a.pj:hover{border-color:var(--accent)}
         <div class="fset-title">Visibilité</div>
         <div class="field">
           <div class="seg-toggle" id="e-vis-toggle">
-            <button data-v="publique" onclick="setVisEdit('publique')">Publique</button>
             <button data-v="privee" onclick="setVisEdit('privee')">Privée</button>
+            <button data-v="locale" onclick="setVisEdit('locale')">Réseau local</button>
+            <button data-v="publique" onclick="setVisEdit('publique')">Publique</button>
           </div>
-          <div class="hint">Publique : ouverte à tous ; une personne connectée à CodeLab y est
-            reconnue automatiquement. Privée : réservée aux comptes CodeLab autorisés, la connexion
-            est demandée avant d'entrer.</div>
+          <div class="hint">Privée : réservée aux comptes CodeLab autorisés, la connexion est
+            demandée avant d'entrer. Réseau local : ouverte sans connexion chez toi, privée depuis
+            internet. Publique : ouverte à tous, internet compris. Une personne connectée à CodeLab
+            y est toujours reconnue automatiquement.</div>
         </div>
       </div>
 
@@ -3942,8 +3946,9 @@ a.pj:hover{border-color:var(--accent)}
       <div class="hint">Les catégories se créent dans Configuration.</div></div>
     <div class="field" id="f-vis-zone"><label>Visibilité</label>
       <div class="seg-toggle" id="f-vis-toggle">
-        <button data-v="publique" onclick="setVisAdd('publique')">Publique</button>
         <button data-v="privee" onclick="setVisAdd('privee')">Privée</button>
+        <button data-v="locale" onclick="setVisAdd('locale')">Réseau local</button>
+        <button data-v="publique" onclick="setVisAdd('publique')">Publique</button>
       </div></div>
   </div>
   <div class="mf"><button class="btn btn-default" onclick="hide('ov-add')">Annuler</button>
