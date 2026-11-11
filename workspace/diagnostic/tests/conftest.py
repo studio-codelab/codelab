@@ -1492,7 +1492,7 @@ class _FausseBase:
 
 
 def _mailpit_ui(nom, binaire=False):
-    chemin = os.path.join(_racine_depot(), "dagster", "proxy", "mailpit-ui", nom)
+    chemin = os.path.join(_racine_depot(), "dagster", "proxy", nom)
     return open(chemin, "rb").read() if binaire else open(chemin, encoding="utf-8").read()
 
 
@@ -1588,7 +1588,7 @@ def _facteur_cle(monkeypatch, proprietaire_ok=True):
 
 def _module_auth():
     import importlib.util
-    chemin = os.path.join(_racine_depot(), "dev", "modeles", "codelab_auth.py")
+    chemin = os.path.join(_racine_depot(), "dev", "codelab_auth.py")
     spec = importlib.util.spec_from_file_location("codelab_auth_test", chemin)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -1632,7 +1632,7 @@ def _session_marie(c):
 
 
 def _module_web():
-    chemin = os.path.join(_racine_depot(), "dev", "modeles", "codelab_web.py")
+    chemin = os.path.join(_racine_depot(), "dev", "codelab_web.py")
     spec = importlib.util.spec_from_file_location("codelab_web_test", chemin)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

@@ -41,7 +41,7 @@ def _git(dossier, *args):
 def test_create_sans_gardien_des_bases_cree_quand_meme_le_projet(tmp_path):
     """La base est creee par defaut, mais un Postgres injoignable ne fait pas
     echouer la creation : le projet est la, et update rattrapera la base."""
-    modeles = os.path.join(_racine_depot(), "dev", "modeles")
+    modeles = os.path.join(_racine_depot(), "dev")
     r, espace = _lancer_codelab(tmp_path, ["create", "carnet"],
                                 dict(_SANS_GARDIEN, CODELAB_MODELES=modeles))
     assert r.returncode == 0, r.stdout + r.stderr
@@ -59,7 +59,7 @@ def test_codelab_update_met_a_jour_sans_rien_effacer(tmp_path):
     """Un vieux projet : son AGENTS.md sans bloc, son CLAUDE.md, un module
     modifie a la main, un .gitignore sans .env. Tout ce qu'il a ecrit reste ;
     ce qui manque arrive."""
-    modeles = os.path.join(_racine_depot(), "dev", "modeles")
+    modeles = os.path.join(_racine_depot(), "dev")
     projet = tmp_path / "ws" / "vieux"
     projet.mkdir(parents=True)
     (projet / "AGENTS.md").write_text("mes regles\n")
@@ -90,7 +90,9 @@ def test_codelab_update_remplace_un_module_intact_dans_git(tmp_path):
     sans etre versionne, il n'est jamais touche."""
     import shutil
     modeles = tmp_path / "modeles"
-    shutil.copytree(os.path.join(_racine_depot(), "dev", "modeles"), modeles)
+    modeles.mkdir()
+    for nom in ("codelab_auth.py", "codelab_web.py", "codelab-auth.js", "codelab-web.js"):
+        shutil.copy(os.path.join(_racine_depot(), "dev", nom), modeles / nom)
     r, espace = _lancer_codelab(tmp_path, ["create", "atelier", "--sans-db"],
                                 {"CODELAB_MODELES": str(modeles)})
     assert r.returncode == 0, r.stdout + r.stderr

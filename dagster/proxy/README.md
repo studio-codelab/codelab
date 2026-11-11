@@ -5,7 +5,7 @@ Un nginx qui garde deux interfaces sans authentification propre :
 | Port | Interface | Fichier |
 |---|---|---|
 | `3000` | Dagster | `nginx.conf` |
-| `8025` | Mailpit (interface CodeLab, `mailpit-ui/`) | `mailpit.conf` |
+| `8025` | Mailpit (interface CodeLab : `index.html`, `app.js`, `app.css`) | `mailpit.conf` |
 
 **Pourquoi** : l'interface de Dagster lance des jobs, donc exécute du code, et celle de Mailpit
 montre tous les mails, liens de réinitialisation compris. Ni Dagster ni Mailpit ne publient de port :
@@ -33,7 +33,7 @@ ce proxy est leur seule porte.
     `credentials.env`, jamais transmis aux applications.
   - nginx l'ajoute aux requêtes déjà autorisées par le panneau.
   - Tant qu'il n'existe pas, `:8025` répond `503`.
-- **Interface au style de CodeLab** (`mailpit-ui/`), bâtie sur l'API publique de Mailpit :
+- **Interface au style de CodeLab** (`index.html`, `app.js`, `app.css`, `theme.js`), bâtie sur l'API publique de Mailpit :
   - aucun script ni style en ligne ;
   - le texte d'un mail passe par `textContent` ;
   - le HTML d'un mail ne s'affiche que dans un cadre isolé, sans script.
@@ -46,7 +46,7 @@ ce proxy est leur seule porte.
 | `entrypoint.sh` | mot de passe interne de Mailpit ; retrait de l'ancien bloc d'identifiants Dagster |
 | `nginx.conf`, `mailpit.conf` | les deux proxys |
 | `indisponible.html` | la page servie quand l'amont ne répond pas |
-| `mailpit-ui/` | l'interface de Mailpit |
+| `index.html`, `app.js`, `app.css`, `theme.js`, `codelab.png`, `codelab.svg`, `logo.png` | l'interface de Mailpit |
 
 ## Vérifier
 

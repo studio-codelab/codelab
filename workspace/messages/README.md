@@ -18,7 +18,7 @@ C'est une **application par défaut**, comme le Diagnostic :
 | `app.py` | le serveur (Flask) : l'identité, la page, l'API de l'administrateur, le relais du hub, le dialogue avec le panneau |
 | `donnees.py` | la base et ses règles : messages, pièces jointes, projets, tâches, suivi, reprise, export |
 | `index.html` | la page : boîte de réception, planning, feuille de route, projets |
-| `codelab_auth.py` | la vérification du jeton signé du panneau ; copie exacte de `dev/modeles/codelab_auth.py` (un test le vérifie) |
+| `codelab_auth.py` | la vérification du jeton signé du panneau ; copie exacte de `dev/codelab_auth.py` (un test le vérifie) |
 | `icon.svg` | l'icône, servie au hub par le panneau et à la page par l'application |
 | `.env` | `CODELAB_DB=messages` ; versionné car il ne porte aucun secret |
 

@@ -115,7 +115,7 @@ RUN pip install --no-cache-dir "piper-tts==${PIPER_VERSION}" \
            "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/medium/$f"; \
        done \
     && piper --help >/dev/null
-COPY dev/video/fabriquer.mjs dev/video/scenario-modele.mjs /usr/local/share/codelab/video/
+COPY dev/fabriquer.mjs dev/scenario-modele.mjs /usr/local/share/codelab/video/
 
 COPY dev/entrypoint.sh /opt/codelab/dev/entrypoint.sh
 RUN chmod +x /opt/codelab/dev/entrypoint.sh
@@ -129,7 +129,8 @@ RUN chmod +x /opt/codelab/dev/entrypoint.sh
 COPY dev/AGENTS.md /usr/local/share/codelab/AGENTS.md
 # « Se connecter avec CodeLab » : les modules que « codelab create » depose
 # dans chaque projet (Python et Node, sans dependance).
-COPY dev/modeles/ /usr/local/share/codelab/modeles/
+COPY dev/codelab_auth.py dev/codelab_web.py dev/codelab-auth.js dev/codelab-web.js \
+     /usr/local/share/codelab/modeles/
 
 # Outil de projet : "codelab create" (un projet complet), "codelab update"
 # (le remettre au niveau de la stack), "codelab video" et "codelab help".

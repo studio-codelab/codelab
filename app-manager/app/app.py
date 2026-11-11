@@ -12051,7 +12051,7 @@ ICONE_DIAGNOSTIC = (
 
 # Mailpit : une enveloppe blanche au trait sur un degrade violet -- l'icone
 # des maquettes de son interface. LE MEME dessin que la marque de
-# l'interface Mailpit de CodeLab (dagster/proxy/mailpit-ui/index.html) : la
+# l'interface Mailpit de CodeLab (dagster/proxy/index.html) : la
 # tuile et l'application se reconnaissent. Dessin original, pas le logo de Mailpit.
 # Jamais dans un onglet : l'onglet porte toujours le logo CodeLab.
 ICONE_MAILPIT = (
@@ -12668,7 +12668,7 @@ def _api_icon(n):
 # panneau ne demande rien a personne : un serveur auto-heberge qui irait
 # chercher sa police chez Google ferait fuiter l'adresse IP de chaque visiteur
 # vers un tiers, et s'afficherait mal des que la machine est hors ligne.
-POLICES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "polices")
+POLICES_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 @flask_app.get("/polices/<nom>")
@@ -14024,7 +14024,7 @@ def strip_session_cookie(raw):
 # de l'application a ses propres regles, et le ruban ne doit ni les subir ni
 # les changer.
 # La meme feuille et le meme script vivent dans l'interface Mailpit
-# (mailpit-ui/app.css et app.js, sa politique interdit tout code en ligne) et
+# (dagster/proxy/app.css et app.js, sa politique interdit tout code en ligne) et
 # dans le sub_filter de Dagster (dagster/proxy/nginx.conf) : un test les
 # tient identiques. Pas d'apostrophe dedans : la chaine de nginx en est
 # delimitee.
@@ -14541,7 +14541,7 @@ def demander_a_l_application(port, methode, chemin, entetes, corps):
 #   laissez-passer lui donne une page, pas un pouvoir de plus.
 # DEPEND DE : jeton_sso (identite signee, avec « tournage »: true),
 #   strip_session_cookie (retire aussi ce cookie), dev/entrypoint.sh (la
-#   copie de la cle), dev/video/fabriquer.mjs (le client).
+#   copie de la cle), dev/fabriquer.mjs (le client).
 # ECARTE : une vraie session admin pour le tournage -- elle ouvrirait le
 #   panneau, donc l'execution de commandes, a tout code du poste ; un compte
 #   de demonstration -- l'application demarre vide, sans ses pages reelles.

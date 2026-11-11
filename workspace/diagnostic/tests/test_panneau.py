@@ -826,7 +826,7 @@ def test_la_police_est_livree_avec_l_image():
     assert "font-display:swap" in bloc, (
         "sans swap, le texte reste invisible tant que la police n'est pas la")
 
-    polices = os.path.join(DOSSIER_PANNEAU, "app", "polices")
+    polices = os.path.join(DOSSIER_PANNEAU, "app")
     fichier = os.path.join(polices, "manrope-latin.woff2")
     assert os.path.isfile(fichier), "le fichier de police manque a l'image"
     with open(fichier, "rb") as f:
@@ -1900,9 +1900,9 @@ def test_les_parametres_s_ouvrent_depuis_le_menu_du_compte():
     reste, l'interface Mailpit le recopie a la construction."""
     racine = _racine_depot()
     assert "jakarta-latin.woff2" not in app.POLICES_SERVIES
-    police = os.path.join(racine, "app-manager", "app", "polices", "jakarta-latin.woff2")
+    police = os.path.join(racine, "app-manager", "app", "jakarta-latin.woff2")
     assert open(police, "rb").read(4) == b"wOF2"
-    assert os.path.exists(os.path.join(racine, "app-manager", "app", "polices", "LICENCE-jakarta.txt"))
+    assert os.path.exists(os.path.join(racine, "app-manager", "app", "LICENCE-jakarta.txt"))
     page = _page_panneau("dashboard.html")
     # La roue crantee a cote du compte, le menu en pilule (barre du bas sur
     # un telephone), les reglages en fenetre.
@@ -2477,7 +2477,7 @@ def test_le_hub_porte_le_lecteur_de_video():
 
 
 def test_codelab_video_pose_un_scenario_a_completer(tmp_path):
-    outils = os.path.join(_racine_depot(), "dev", "video")
+    outils = os.path.join(_racine_depot(), "dev")
     (tmp_path / "ws" / "mon-site").mkdir(parents=True)
     r, espace = _lancer_codelab(tmp_path, ["video", "mon-site"],
                                 {"CODELAB_VIDEO_OUTILS": outils})
@@ -2517,7 +2517,7 @@ def test_codelab_video_dit_que_l_application_ne_repond_pas(tmp_path):
         'export default { titre: "t", adresse: "http://localhost:%d/", etapes: [{ voix: "x" }] };\n' % port)
     # Sans laissez-passer (pas de cle), le hub ne peut pas prendre le relais.
     env["CODELAB_TOURNAGE_FICHIER"] = str(tmp_path / "pas-de-cle")
-    r = subprocess.run(["node", os.path.join(_racine_depot(), "dev", "video", "fabriquer.mjs"),
+    r = subprocess.run(["node", os.path.join(_racine_depot(), "dev", "fabriquer.mjs"),
                         str(tmp_path)], env=env, capture_output=True, text=True, timeout=60)
     assert r.returncode == 1, r.stdout + r.stderr
     # L'adresse locale muette, lue en 127.0.0.1, passe la main au hub (vecu :
@@ -2567,7 +2567,7 @@ def test_les_scripts_video_sont_du_javascript_valide():
     if not shutil.which("node"):
         pytest.skip("node absent")
     for f in ("fabriquer.mjs", "scenario-modele.mjs"):
-        r = subprocess.run(["node", "--check", os.path.join(_racine_depot(), "dev", "video", f)],
+        r = subprocess.run(["node", "--check", os.path.join(_racine_depot(), "dev", f)],
                            capture_output=True, text=True, timeout=30)
         assert r.returncode == 0, r.stderr
 
@@ -2579,7 +2579,7 @@ def test_l_image_du_poste_a_les_outils_de_la_video():
     assert "ffmpeg" in dockerfile
     assert "playwright install --with-deps chromium" in dockerfile
     assert "piper-tts==" in dockerfile and "fr_FR-siwis-medium.onnx.json" in dockerfile
-    assert "COPY dev/video/fabriquer.mjs dev/video/scenario-modele.mjs" in dockerfile
+    assert "COPY dev/fabriquer.mjs dev/scenario-modele.mjs" in dockerfile
     assert "## 14. Video de presentation" in open(
         os.path.join(_racine_depot(), "dev", "AGENTS.md"), encoding="utf-8").read()
 
@@ -3015,7 +3015,7 @@ def test_la_video_prend_le_vrai_nom_de_l_application(tmp_path):
     import subprocess
     if not shutil.which("node"):
         pytest.skip("node absent")
-    source = open(os.path.join(_racine_depot(), "dev", "video", "fabriquer.mjs"), encoding="utf-8").read()
+    source = open(os.path.join(_racine_depot(), "dev", "fabriquer.mjs"), encoding="utf-8").read()
     fonction = source[source.index("function prendreLeVraiNom"):source.index("async function demanderAuPanneau")]
     essai = tmp_path / "essai.mjs"
     essai.write_text("const dire = () => {};\nlet scenario;\n" + fonction + """
@@ -3168,7 +3168,7 @@ def test_le_tournage_s_arrete_devant_un_formulaire_de_connexion(tmp_path):
     import subprocess
     if not shutil.which("node"):
         pytest.skip("node absent")
-    source = open(os.path.join(_racine_depot(), "dev", "video", "fabriquer.mjs"), encoding="utf-8").read()
+    source = open(os.path.join(_racine_depot(), "dev", "fabriquer.mjs"), encoding="utf-8").read()
     fonction = source[source.index("function formulaireDeConnexion"):]
     fonction = fonction[:fonction.index("\n}\n") + 2]
     essai = tmp_path / "essai.mjs"
@@ -7677,7 +7677,7 @@ def test_le_module_node_verifie_le_jeton(monkeypatch, tmp_path):
         pytest.skip("node absent")
     _cle_sso(monkeypatch)
     jeton = _jeton("site", email="a@x.fr", verifie=True, monkeypatch=monkeypatch)
-    module = os.path.join(_racine_depot(), "dev", "modeles", "codelab-auth.js")
+    module = os.path.join(_racine_depot(), "dev", "codelab-auth.js")
     script = tmp_path / "t.js"
     script.write_text(
         "const m = require(" + json.dumps(module) + ");\n"
@@ -11052,7 +11052,8 @@ def test_mailpit_a_l_interface_de_codelab():
     # Plus rien n'est injecte dans les pages de Mailpit.
     assert "sub_filter" not in conf
     dockerfile = open(os.path.join(racine, "dagster", "proxy", "Dockerfile"), encoding="utf-8").read()
-    assert "COPY dagster/proxy/mailpit-ui/ /usr/share/nginx/codelab/mailpit/" in dockerfile
+    assert "dagster/proxy/index.html dagster/proxy/theme.js" in dockerfile
+    assert "/usr/share/nginx/codelab/mailpit/" in dockerfile
     assert "jakarta-latin.woff2 /usr/share/nginx/codelab/mailpit/jakarta.woff2" in dockerfile
     assert "LICENCE-jakarta.txt /usr/share/nginx/codelab/mailpit/" in dockerfile
 
@@ -11131,9 +11132,9 @@ def test_mailpit_a_sa_nouvelle_icone_sur_la_tuile_et_dans_la_page():
     """L'enveloppe blanche sur degrade violet des maquettes : la meme sur la
     tuile du hub et dans la barre de l'interface. Jamais dans un onglet."""
     # Une seule source pour l'enveloppe : ICONE_MAILPIT. La copie
-    # logo.svg de mailpit-ui, que rien ne servait, est partie.
+    # logo.svg de l'interface Mailpit, que rien ne servait, est partie.
     logo = app.ICONE_MAILPIT
-    assert not os.path.exists(os.path.join(_racine_depot(), "dagster", "proxy", "mailpit-ui", "logo.svg"))
+    assert not os.path.exists(os.path.join(_racine_depot(), "dagster", "proxy", "logo.svg"))
     assert "#7c6cf6" in logo and "#4f46e5" in logo
     assert 'fill="none" stroke="#fff"' in logo and 'fill="#fff"' not in logo
     assert _mailpit_ui("logo.png", binaire=True)[:8] == b"\x89PNG\r\n\x1a\n"
@@ -11853,13 +11854,14 @@ def test_une_application_injoignable_leve_une_erreur_de_connexion():
 
 
 def test_codelab_create_depose_les_modules_de_connexion(tmp_path):
-    modeles = os.path.join(_racine_depot(), "dev", "modeles")
+    modeles = os.path.join(_racine_depot(), "dev")
     r, espace = _lancer_codelab(tmp_path, ["create", "boutique"], {"CODELAB_MODELES": modeles})
     assert r.returncode == 0, r.stdout + r.stderr
     for nom in ("codelab_auth.py", "codelab-auth.js"):
         assert (espace / "boutique" / nom).read_text() == open(os.path.join(modeles, nom)).read()
     dockerfile = open(os.path.join(_racine_depot(), "dev", "Dockerfile")).read()
-    assert "COPY dev/modeles/ /usr/local/share/codelab/modeles/" in dockerfile
+    assert "dev/codelab_auth.py dev/codelab_web.py dev/codelab-auth.js dev/codelab-web.js" in dockerfile
+    assert "/usr/local/share/codelab/modeles/" in dockerfile
     manuel = open(os.path.join(_racine_depot(), "dev", "AGENTS.md")).read()
     assert "connexion_silencieuse" in manuel and "email_verified" in manuel
 
@@ -11927,7 +11929,7 @@ def test_le_module_node_des_erreurs_et_des_en_tetes(tmp_path):
     node = shutil.which("node")
     if not node:
         pytest.skip("node absent")
-    module = os.path.join(_racine_depot(), "dev", "modeles", "codelab-web.js")
+    module = os.path.join(_racine_depot(), "dev", "codelab-web.js")
     script = tmp_path / "t.js"
     # Un faux Express : juste ce que le module appelle.
     script.write_text(
@@ -11968,7 +11970,7 @@ def test_le_module_node_des_erreurs_et_des_en_tetes(tmp_path):
 
 
 def test_codelab_create_depose_les_modules_web_et_un_claude_md(tmp_path):
-    modeles = os.path.join(_racine_depot(), "dev", "modeles")
+    modeles = os.path.join(_racine_depot(), "dev")
     r, espace = _lancer_codelab(tmp_path, ["create", "atelier"], {"CODELAB_MODELES": modeles})
     assert r.returncode == 0, r.stdout + r.stderr
     projet = espace / "atelier"
@@ -15693,9 +15695,9 @@ def test_l_application_messages_tourne_sur_un_vrai_postgres(pg_reel, monkeypatch
 def test_messages_verifie_l_identite_avec_le_module_livre_aux_projets():
     """L'application verifie le jeton avec codelab_auth.py, le module que
     « codelab create » depose dans chaque projet. Une copie, et non un
-    module a part : elle doit rester celle de dev/modeles, octet pour octet
+    module a part : elle doit rester celle de dev/, octet pour octet
     (« codelab update » la tiendrait a jour dans un projet ordinaire)."""
-    modele = os.path.join(_racine_depot(), "dev", "modeles", "codelab_auth.py")
+    modele = os.path.join(_racine_depot(), "dev", "codelab_auth.py")
     if not os.path.exists(modele):
         pytest.skip("depot complet absent de cette image")
     copie = os.path.join(DOSSIER_MESSAGES, "codelab_auth.py")
