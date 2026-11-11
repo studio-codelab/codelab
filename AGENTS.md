@@ -50,11 +50,10 @@ Ce qu'un agent ne fait **jamais** sans demande explicite :
 | Dossier | Ce que c'est | Lu par |
 |---|---|---|
 | `app-manager/` | **le panneau** : Flask + waitress, authentification, hub, proxy des applications, mails, sauvegardes | tout le monde |
-| `app-manager/app/app.py` | le service : imports, chemins et constantes partagés, le chargeur de `serveur/`, puis `main` | — |
-| `app-manager/app/serveur/` | le reste du service, en 15 morceaux de sections `# ---- titre ----`, exécutés dans la portée d'`app` (`MODULES_DU_SERVEUR`) | `app.py` |
+| `app-manager/app/app.py` | le service, en un fichier : imports, chemins et constantes partagés, puis quinze parties (bannières `# ==== NN-nom : TITRE ====`, chacune en sections `# ---- titre ----`), puis `main` | — |
 | `app-manager/app/stockage.py` | SQLite : connexions, `MIGRATIONS` versionnées, sauvegarde cohérente | `app.py` |
 | `app-manager/app/dashboard.html` | le panneau (hub, applications, paramètres…), page unique : balisage et CSS | navigateur |
-| `app-manager/app/panneau/` | le script de `dashboard.html`, en modules assemblés dans l'ordre (`PANNEAU_MODULES`), mis en cache | navigateur |
+| `app-manager/app/panneau.js` | le script de `dashboard.html`, en neuf parties (`00-socle` à `08-reglages`), mis en cache | navigateur |
 | `app-manager/app/login.html` | connexion | navigateur |
 | `app-manager/app/theme.css` | **toutes** les couleurs, formes, tailles ; **aussi servi aux applications** (`/theme.css`) | panneau **et** applications |
 | `app-manager/app/mode.js` | le **mode** (site / application), la barre d'état, le verrou portrait | les trois pages |
@@ -85,8 +84,8 @@ modification touche une case de gauche, vérifie chaque point de droite.
 | **`mode.js`** | Il est chargé **avant tout affichage** par `dashboard.html` et `login.html`, et il verrouille le portrait sur un téléphone Android (voir « PAS DE ROTATION »). Il ne retourne plus la page sur iPhone : la contre-rotation a été retirée à la demande de l'utilisateur, ne la remets pas. Les tests découpent le fichier sur les marqueurs `(function(){`, `})();` et `if(!app) return;` : n'écris pas `(function(){` ailleurs dans le bloc (écris `function(e){`). |
 | **`environnement-app.js`** | Le proxy le glisse **dans une balise `<script>` de pages qu'on ne contrôle pas**. Quatre contraintes en découlent. Pas de `</` dans le fichier, commentaires compris : il fermerait la balise. Un seul `__PANNEAU__`, remplacé par l'origine du panneau. Du **ES5**, puisqu'il tourne avant tout, sur n'importe quel navigateur. Et il ne doit **jamais** casser l'application : tout ce qui peut échouer passe par `try`, et une CSP stricte de l'application le bloque sans rien casser. Il simule iOS pour une application encadrée ; toute nouvelle simulation est documentée dans `dev/AGENTS.md` (« Ce que le hub te dit »). |
 | **`ouvrir.html`** (servi par `ouvrir_dans_le_panneau`, `app.py`) | C'est une page à marqueurs (`__TITRE__`, `__ICONE__`, `__CIBLE__`, `__ORIGINE__`), remplie **en un seul passage**, chaque valeur étant échappée pour son contexte. N'écris pas de marqueur ailleurs, commentaires compris. Elle dialogue avec `environnement-app.js` par `postMessage`. **Les deux côtés vérifient l'origine exacte** (`e.origin !== origine`, `e.origin !== PANNEAU`) et valident chaque valeur reçue (expression rationnelle des couleurs). Son `frame-src` vient de `cadres_permis()` : ne l'élargis jamais à `*`. |
-| **`serveur/*.py`** | Ce ne sont pas des modules : `app.py` les exécute dans **sa** portée, dans l'ordre de `MODULES_DU_SERVEUR`. Ils partagent donc les globales, et `monkeypatch.setattr(app, …)` atteint leurs appels. Un nouveau fichier ne tourne que s'il est ajouté à la liste (un test le vérifie). Chaque morceau s'analyse seul : une frontière ne coupe jamais une fonction. N'importe jamais un morceau. Les tests lisent le source réassemblé (`_source_du_panneau`), jamais `app.py` seul. |
-| **`panneau/*.js`** | Les modules s'assemblent en UN script, dans l'ordre de `PANNEAU_MODULES` (`app.py`) : une seule portée, et un nouveau fichier n'est servi que s'il est ajouté à la liste (un test le vérifie). Chaque module s'analyse seul : une frontière ne coupe jamais une fonction. Le script est le même pour toutes les sessions et se met en cache : aucune valeur propre à la session n'y entre. Elles passent par `window.CODELAB_PAGE`, que `page_du_panneau` écrit dans la page avec `_json_dans_un_script` (« < » échappé). Les tests le lisent remis en ligne dans la page (`_page_panneau`, `_page_servie`). |
+| **`app.py`** | Un seul fichier, rangé en quinze parties numérotées (`01-pages-et-secrets` à `15-serveur-http`) : une fonction nouvelle va dans la partie et la section de son sujet. Une seule portée : `monkeypatch.setattr(app, …)` atteint chaque appel. Les renvois du code et de la doc nomment la partie (« `app.py`, `14-tunnel` »). |
+| **`panneau.js`** | Un seul script, en neuf parties numérotées, une seule portée (une fonction déclarée deux fois remplacerait la première : un test le vérifie). Il est le même pour toutes les sessions et se met en cache : aucune valeur propre à la session n'y entre. Elles passent par `window.CODELAB_PAGE`, que `page_du_panneau` écrit dans la page avec `_json_dans_un_script` (« < » échappé). Les tests le lisent remis en ligne dans la page (`_page_panneau`, `_page_servie`). |
 | **Le CSS de `dashboard.html`** | `data-style="design"` et `data-variante="bento"` sont toujours posés : une propriété de base que la règle préfixée redéfinit ne sert à rien, ne l'y remets pas. Un commentaire ou une accolade déséquilibrés effacent des règles sans aucun message : un test le vérifie. |
 | **Un nom de route Flask** | Les noms d'application ne peuvent pas prendre celui d'une route (règle 21 de `SECURITE.md`) : la liste est tirée de la table des routes. Une route que les applications doivent atteindre va dans `ROUTES_APPLICATIONS`, avec sa justification. |
 | **`stockage.MIGRATIONS`** | **Ajoute seulement à la fin**, ne modifie ni ne réordonne jamais une migration passée : elle a déjà tourné chez l'utilisateur. Une migration est idempotente, et elle est testée sur une base de la version précédente. |
@@ -98,7 +97,7 @@ modification touche une case de gauche, vérifie chaque point de droite.
 | **Les notifications** (`SERVICES_PUSH`, `chiffrer_push`, `cle_vapid`) | `SERVICES_PUSH` est une **liste blanche anti-SSRF** : le panneau n'envoie de requête qu'aux services de push connus. Le chiffrement suit RFC 8291 (aes128gcm) et RFC 8292 (VAPID) ; une modification se vérifie contre les vecteurs de test des RFC (tests existants). |
 | **Le proxy** (`proxy`, `injecter_*`) | Il ne réécrit que le `text/html` et recalcule la longueur. Il ne transmet **jamais** le cookie du panneau à une application (règle 19). L'ordre des injections compte : environnement d'abord, avant les scripts de la page. |
 | **Les secrets transmis aux applications** (section « secrets transmis aux applications ») | Une application est du code arbitraire. Elle ne reçoit que le compte de **sa** base : ni le bloc du panneau, ni la clé de session, ni le mot de passe d'envoi des mails, ni l'administrateur Postgres. |
-| **L'accès depuis internet** (`serveur/14-tunnel.py`, Tailscale Funnel, `par_le_tunnel`, `TUNNEL_PORTS`) | Une requête de Funnel se reconnaît à son **port** d'arrivée (`9011`, `9012`, sur `127.0.0.1`), jamais à un en-tête ni au nom d'hôte. Les fonctions d'origine (`origine_applications`, `lien_panneau`, `schema_vu`, `https_actif`, `_hote_et_schema`) et de réseau (`client_est_local`, `proxy_non_declare`, `_client_ip`) ont chacune leur branche Funnel : une nouvelle fonction de ce genre en a besoin aussi. Une adresse passe `_HOTE_TUNNEL` avant tout usage. `tailscaled` et `tailscale` reçoivent un environnement vide et tournent sous `TUNNEL_UID`. La clé vit dans le coffre (`reglage("tunnel_cle")`), passe par un fichier `0600` et jamais en argument, et ne sort dans aucune réponse. Règle 12 quater. |
+| **L'accès depuis internet** (`app.py, 14-tunnel`, Tailscale Funnel, `par_le_tunnel`, `TUNNEL_PORTS`) | Une requête de Funnel se reconnaît à son **port** d'arrivée (`9011`, `9012`, sur `127.0.0.1`), jamais à un en-tête ni au nom d'hôte. Les fonctions d'origine (`origine_applications`, `lien_panneau`, `schema_vu`, `https_actif`, `_hote_et_schema`) et de réseau (`client_est_local`, `proxy_non_declare`, `_client_ip`) ont chacune leur branche Funnel : une nouvelle fonction de ce genre en a besoin aussi. Une adresse passe `_HOTE_TUNNEL` avant tout usage. `tailscaled` et `tailscale` reçoivent un environnement vide et tournent sous `TUNNEL_UID`. La clé vit dans le coffre (`reglage("tunnel_cle")`), passe par un fichier `0600` et jamais en argument, et ne sort dans aucune réponse. Règle 12 quater. |
 | **Les en-têtes et la CSP** (`CSP_PANNEAU`, `csp_panneau`, `page_avec_nonce`, `poser_les_entetes`, `HSTS`) | Pas de `'unsafe-inline'` dans `script-src` (règle 23) : une balise `<script>` ou `<style>` en ligne porte `nonce="__NONCE__"`, que `page_avec_nonce` remplit sur le gabarit **avant** toute donnée ; jamais de `onclick=` ni d'URL `javascript:`, un élément nomme son appel (`data-agir`, `data-changer`, `data-saisir`, `data-entree`, arguments en JSON dans `data-args`) et la fonction s'ajoute à la table `APPELS` (fin de `panneau.js`, ou celle de `login.html`). Ne relâche jamais une directive. Si une fonctionnalité semble l'exiger, cherche une autre implémentation, ou demande à l'utilisateur. Le HSTS ne se pose que si le panneau sait qu'il est servi en TLS. |
 | **Un `Dockerfile` ou un workflow** | Les actions GitHub sont épinglées par SHA, les images de base par tag (correctifs hebdomadaires). Un nouveau dossier de service s'ajoute aux `paths` de `build-images.yml`. Une image ne se reconstruit que si un fichier qu'elle copie change : un nouveau `COPY` dans un Dockerfile s'ajoute à la table du job `changements` (un test le vérifie). Le dépôt est privé, sur le plan gratuit (2 000 minutes par mois) : ne rajoute pas une construction à chaque push. |
 | **Un texte visible** | L'interface est en français, avec accents, et tutoie l'utilisateur. Jamais d'`alert()`, `confirm()` ni `prompt()` : une confirmation dont le bouton porte le verbe. |
@@ -182,8 +181,9 @@ rapporte le cas vécu.
 
 ### 5.1 Structure
 
-- **Un fichier, un rôle**, annoncé dans son en-tête (5.4). Dans un gros fichier comme un morceau de
-  `serveur/` ou `dashboard.html`, le code se range en **sections titrées**
+- **Un fichier par type et par service**, annoncé dans son en-tête (5.4) : le dépôt garde peu de
+  fichiers (`app.py`, `panneau.js`, trois fichiers de tests). Dans un gros fichier comme `app.py`
+  ou `dashboard.html`, le code se range en **parties** puis en **sections titrées**
   (`# ------------------------------ titre ------------------------------`), dans l'ordre où l'on
   en a besoin. Une fonction nouvelle va dans la section de son sujet, pas en fin de fichier.
 - **Une fonction fait une chose.** Au-delà d'environ 60 lignes, ou de trois niveaux d'imbrication,
@@ -272,10 +272,11 @@ python3 -m pytest workspace/diagnostic/tests -q        # depuis la racine
 ```
 
 - Elle tourne en ≈ 50 s. Elle passe **entièrement** avant chaque push, et la CI la relance.
-- **Un fichier par sujet** dans `workspace/diagnostic/tests/` (`test_securite.py`, `test_comptes.py`,
-  `test_affichage.py`…). Les aides et constantes vont dans `commun.py`, que chaque fichier importe ;
-  les fixtures, dont le filet qui détourne les chemins d'état, dans `conftest.py`. Un test nouveau
-  va dans le fichier de son sujet.
+- **Trois fichiers** dans `workspace/diagnostic/tests/` : `conftest.py` (les aides et constantes,
+  que chaque fichier importe par `from conftest import *`, puis les fixtures, dont le filet qui
+  détourne les chemins d'état), `test_panneau.py` (le panneau, en parties : socle, affichage,
+  applications, comptes, sécurité…) et `test_services.py` (les autres services et le
+  diagnostic). Un test nouveau va dans la partie de son sujet.
 - **Beaucoup de tests lisent le source** : ils vérifient qu'une chaîne, un marqueur ou une règle CSS
   est présent ou absent. C'est voulu. Ils figent une garantie (sécurité, affichage) que rien
   d'autre ne vérifierait. Quand un tel test échoue après ta modification, deux cas :

@@ -288,7 +288,7 @@
   :root[data-variante="bento"][data-couleurs="ardoise"]:not([data-theme="light"]):not([data-theme="dark"]){--accent:#CBD5E1; --accent-h:#E2E8F0; --accent-soft:rgba(203,213,225,.14); --accent-ring:rgba(203,213,225,.3); --sur-accent:#0F172A; --bento-lien:#334155;}
 }
 :root[data-variante="bento"][data-couleurs="ardoise"][data-theme="dark"]{--accent:#CBD5E1; --accent-h:#E2E8F0; --accent-soft:rgba(203,213,225,.14); --accent-ring:rgba(203,213,225,.3); --sur-accent:#0F172A; --bento-lien:#334155;}
-/* Framboise, Ambre, Indigo et Olive : calculees par palette_accent (serveur/12),
+/* Framboise, Ambre, Indigo et Olive : calculees par palette_accent (app.py, 12),
    la fonction de la couleur personnalisee, puis recopiees ici. */
 :root[data-variante="bento"][data-couleurs="framboise"]{--accent:#C2255C; --accent-h:#A01E4C; --accent-soft:#F8E5EB; --accent-ring:rgba(194,37,92,.22); --sur-accent:#FFFFFF; --bento-lien:#E49DB6;}
 @media (prefers-color-scheme: dark){

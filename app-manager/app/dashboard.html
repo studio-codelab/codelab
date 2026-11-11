@@ -38,7 +38,7 @@
                  version, preferences.
   CHOIX       - Une seule page : la navigation ne recharge rien, et l'etat
                 (fiche ouverte, onglet) suit l'adresse.
-              - Le script vit dans panneau/ (modules assembles, mis en cache,
+              - Le script vit dans panneau.js (mis en cache,
                 a une session) ; la page ne garde en ligne que
                 window.CODELAB_PAGE, les six valeurs que le serveur ecrit a
                 chaque affichage.
@@ -1377,7 +1377,7 @@ body{letter-spacing:-.01em}
    z-index -1 dans son contexte d'empilement) : le fond de la page, plein
    sous le bandeau puis en degrade sur 28 px, si bien qu'une tuile s'estompe
    au lieu d'etre tranchee. Il n'apparait que la page defilee (classe
-   page-defilee, posee par 00-socle.js) : en haut de page, rien ne passe
+   page-defilee, posee par panneau.js) : en haut de page, rien ne passe
    dessous.
    Le bandeau lui-meme reste transparent : mode.js lit sa couleur pour la
    barre d'etat, et retombe alors sur celle du fond -- la meme, mais opaque.

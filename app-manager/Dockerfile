@@ -19,7 +19,7 @@
 FROM node:24-trixie-slim AS node
 
 # TAILSCALE : l'acces depuis internet par Tailscale Funnel, une adresse fixe
-# en https sans domaine a payer (voir app/serveur/14-tunnel.py). Les
+# en https sans domaine a payer (voir app/app.py, 14-tunnel). Les
 # binaires officiels (Go, sans dependance), recopies de l'image de Tailscale
 # comme node ci-dessus : une etape nommee, suivie par Dependabot. Ils ne
 # tournent que si l'administrateur allume l'acces dans les Parametres.

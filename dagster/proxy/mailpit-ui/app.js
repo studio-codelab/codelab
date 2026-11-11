@@ -866,6 +866,6 @@
 })();
 
 /* Le ruban de retour au hub : replie au bout de 10 s. LE MEME script que
-   RUBAN_JS (app-manager/app/serveur/13), recopie tel quel -- un test les
+   RUBAN_JS (app-manager/app/app.py, 13), recopie tel quel -- un test les
    tient identiques. */
 (function(){try{var d=document.getElementById("codelab-ruban"),t=null;d.addEventListener("toggle",function(){clearTimeout(t);if(d.open){t=setTimeout(function(){d.open=false;},10000);}});}catch(e){}})();

@@ -795,7 +795,7 @@ def _joindre_panneau(port, chemin="/health", timeout=4):
 
 
 # Le port des applications quand rien ne le dit : c'est le defaut du panneau
-# (voir APPS_PORT dans app-manager/app/serveur/02-sessions.py), et c'est celui que publie
+# (voir APPS_PORT dans app-manager/app/app.py, 02-sessions), et c'est celui que publie
 # docker-compose.yml.
 PORT_APPS_DEFAUT = 9002
 
@@ -1688,7 +1688,7 @@ def verif_le_projet_est_ecrivable():
 # Seule trace voulue : les echecs de connexion du dernier pentest, sous le
 # nom PENTEST_NOM, qui mettent l'adresse de ce conteneur en pause cinq
 # minutes (regle 6) -- c'est precisement ce qu'il verifie.
-# DEPEND DE : les routes et les messages du panneau (serveur/*.py). Un test
+# DEPEND DE : les routes et les messages du panneau (app.py). Un test
 # du depot (test_les_pentests_visent_de_vraies_routes) tient la liste
 # ROUTES_ADMIN_PENTEST alignee sur la table des routes.
 
@@ -1773,7 +1773,7 @@ def pentest_routes_admin_sans_session():
 
 
 # L'en-tete et la valeur que la page du panneau doit porter. Le detail de
-# chaque choix est dans poser_les_entetes (serveur/04-requetes.py).
+# chaque choix est dans poser_les_entetes (app.py, 04-requetes).
 ENTETES_ATTENDUS = {
     "x-content-type-options": "nosniff",
     "x-frame-options": "DENY",
