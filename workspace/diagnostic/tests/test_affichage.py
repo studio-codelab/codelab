@@ -424,7 +424,7 @@ def test_la_deconnexion_est_rouge_aux_deux_endroits():
     « Deconnexion » gris dans les parametres et rouge dans le menu se lit
     comme deux choses differentes."""
     page = _page_panneau("dashboard.html")
-    declencheurs = page.split('onclick="doLogout()"')[:-1]
+    declencheurs = page.split('data-agir="doLogout"')[:-1]
     assert len(declencheurs) == 2, "il y a deux boutons de deconnexion"
     for avant in declencheurs:
         balise = avant[avant.rindex("<"):]
@@ -885,7 +885,7 @@ def test_le_mot_a_l_administrateur_a_sa_propre_rubrique():
     assert '<button data-p="message"' not in page and 'id="param-message"' not in page
     assert '<div id="sec-message" class="section"' in page
     entree = page.split('data-sec="message"')[1].split(">")[0]
-    assert "allerA('message')" in entree
+    assert 'data-agir="allerA" data-args=\'["message"]\'' in entree
     assert "message:'/messages'" in page
 
     # Le formulaire est DANS cette rubrique, et plus dans le hub.
@@ -1666,7 +1666,7 @@ def test_les_parametres_s_ouvrent_depuis_le_menu_du_compte():
     # un telephone), les reglages en fenetre.
     # Pas de roue crantee : les parametres s'ouvrent depuis le menu du compte.
     assert "reglages-btn" not in page
-    assert 'id="acct-parametres" onclick="allerA(\'parametres\')"' in page
+    assert 'id="acct-parametres" data-agir="allerA" data-args=\'["parametres"]\'' in page
     assert '#sec-parametres{display:grid' in page
     assert '.sidebar{top:auto;bottom:0' in page
     # Un compte utilisateur garde ses entrees : le hub et ses messages.
@@ -1723,7 +1723,8 @@ def test_le_hub_se_regle_et_le_serveur_ne_pose_que_des_valeurs_connues(deux_espa
     for cle, valeurs in app.REGLAGES_HUB.items():
         for v in valeurs:
             # La couleur personnalisee passe par son selecteur.
-            attendu = "choisirCouleurPerso(" if (cle, v) == ("couleurs", "perso") else f"setHub('{cle}','{v}')"
+            attendu = ('data-saisir="choisirCouleurPerso"' if (cle, v) == ("couleurs", "perso")
+                       else f'data-agir="setHub" data-args=\'["{cle}", "{v}"]\'')
             assert attendu in page, (cle, v)
     # Plus de modeles, d'en-tete centre ni de fond trame : retires a la
     # demande.
@@ -1834,8 +1835,9 @@ def test_le_nuancier_change_la_couleur_d_accent():
     assert 'data-couleurs="lagon"' not in theme
     page = _page_panneau("dashboard.html")
     for nom in teintes:
-        assert f"setHub('couleurs','{nom}')" in page, nom
-    assert 'data-v="perso"' in page and 'oninput="choisirCouleurPerso(this.value)"' in page
+        assert f'data-agir="setHub" data-args=\'["couleurs", "{nom}"]\'' in page, nom
+    assert 'data-v="perso"' in page and 'data-saisir="choisirCouleurPerso"' in page
+    assert "choisirCouleurPerso(){ choisirCouleurPerso(this.value); }" in page
 
 
 def test_la_couleur_personnalisee_est_lisible_en_clair_et_en_sombre(deux_espaces):
@@ -2027,7 +2029,8 @@ def test_l_onglet_acces_autorise_un_compte(deux_espaces):
 def test_la_liste_des_applications_se_cherche_se_filtre_et_se_trie():
     page = _page_panneau("dashboard.html")
     for trace in ('id="ap-filtre"', 'id="ap-etats"', 'id="ap-vis"', 'id="ap-cat"', 'id="ap-tri"',
-                  "apVue('cartes')", "apVue('liste')", 'data-agir="ap-trier"', "aria-sort=",
+                  'data-agir="apVue" data-args=\'["cartes"]\'',
+                  'data-agir="apVue" data-args=\'["liste"]\'', 'data-agir="ap-trier"', "aria-sort=",
                   'class="ap-grille"', "'ap-trier':", "'ap-etat':"):
         assert trace in page, trace
     # Les outils sont HORS de la zone repeinte toutes les cinq secondes.
@@ -2210,7 +2213,7 @@ def test_la_fiche_propose_les_videos_du_projet():
     page = _page_panneau("dashboard.html")
     fiche = page.split("function peindrePresentationFiche(")[1].split("\n}")[0]
     assert 'data-changer="presentation-fichier"' in fiche and "optionsVideos(a)" in fiche
-    assert "if(n && n.dataset.changer === 'presentation-fichier')" in page
+    assert "else if(n.dataset.changer === 'presentation-fichier')" in page
     assert "JSON.stringify({fichier})" in page.split("async function choisirVideo(")[1].split("\n}")[0]
 
 
@@ -2712,7 +2715,7 @@ def test_le_nom_d_une_tuile_passe_avant_sa_description():
     assert "const DESCRIPTION_VISIBLE=45, DESCRIPTION_MAX=140;" in page
     for champ in ("e-desc", "f-desc"):
         assert f'id="{champ}-compte"' in page and f'id="{champ}"' in page
-    assert page.count('oninput="compterDescription(this)"') == 2
+    assert page.count('data-saisir="compterDescription"') == 2
 
 
 

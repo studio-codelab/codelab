@@ -640,7 +640,7 @@ def _scripts_de_la_page(nom):
     """
     page = _page_panneau(nom)
     scripts = []
-    for bloc in re.findall(r"<script>(.*?)</script>", page, re.S):
+    for bloc in re.findall(r'<script(?: nonce="__NONCE__")?>(.*?)</script>', page, re.S):
         bloc = (bloc.replace("__ROLE__", '"admin"')
                     .replace("__UTILISATEUR__", '"moi"'))
         scripts.append(re.sub(r"__[A-Z_]+__", '""', bloc))

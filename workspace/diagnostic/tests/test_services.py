@@ -174,14 +174,16 @@ def test_l_aide_est_un_onglet_des_parametres_reserve_a_l_administrateur():
     a un compte utilisateur ; la page Applications n'a plus sa fenetre."""
     page = _page_panneau("dashboard.html")
     onglets = page.split('id="param-onglets"')[1].split("</div>")[0]
-    assert """<button data-p="aide" onclick="paramOnglet('aide')" data-admin="1">Aide</button>""" in onglets
+    assert ("""<button data-p="aide" data-agir="paramOnglet" data-args='["aide"]' """
+            """data-admin="1">Aide</button>""") in onglets
     assert 'id="param-aide"' in page
     utilisateur = re.search(r"const ONGLETS_UTILISATEUR=\[([^\]]*)\]", page).group(1)
     assert "aide" not in utilisateur
     outils = page.split('<div id="sec-apps"')[1].split('id="ap-outils"')[0]
     assert "Commandes" not in outils and 'id="ov-commandes"' not in page
     # Depuis « Nouvelle application », le lien mene a l'onglet.
-    assert "ouvrirAide()" in page.split('id="ov-add"')[1][:1500]
+    assert 'data-agir="aideDepuisAjout"' in page.split('id="ov-add"')[1][:1500]
+    assert "aideDepuisAjout(){ hide('ov-add'); ouvrirAide(); }" in page
     assert "function ouvrirAide(){ showSection('parametres'); paramOnglet('aide'); }" in page
 
 

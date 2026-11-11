@@ -28,7 +28,7 @@ __ECRANS_DEMARRAGE__
 <meta name="theme-color" content="#E9EBEE" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0D1015" media="(prefers-color-scheme: dark)">
 <script src="/mode.js"></script>
-<style>
+<style nonce="__NONCE__">
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--txt);font:var(--t-b)/1.5 var(--sans);
  -webkit-font-smoothing:antialiased;min-height:100vh;display:flex;align-items:center;
@@ -56,12 +56,12 @@ button:disabled{opacity:.6;cursor:default}
   <p>D'ici là, tu peux changer d'avis : ton compte reprendra là où il en était, avec
     les mêmes accès.</p>
   <div class="actions">
-    <button class="principal" id="garder" onclick="garder()">Annuler la suppression</button>
-    <button id="sortir" onclick="sortir()">Me déconnecter</button>
+    <button class="principal" id="garder">Annuler la suppression</button>
+    <button id="sortir">Me déconnecter</button>
   </div>
   <div class="err" id="err" role="alert"></div>
 </main>
-<script>
+<script nonce="__NONCE__">
 const JETON = __JETON__;
 function erreur(t){ const e=document.getElementById('err'); e.textContent=t; e.style.display='block'; }
 async function garder(){
@@ -79,5 +79,8 @@ async function sortir(){
   try{ await fetch('/logout',{method:'POST',headers:{'X-CodeLab-Jeton':JETON}}); }catch(e){}
   location.href='/login';
 }
+/* Pas de onclick= : la CSP du panneau refuse les gestionnaires en ligne. */
+document.getElementById('garder').addEventListener('click', garder);
+document.getElementById('sortir').addEventListener('click', sortir);
 </script>
 </body></html>

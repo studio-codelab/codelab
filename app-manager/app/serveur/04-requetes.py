@@ -87,7 +87,8 @@ def page_deconnexion():
                  "applications o\u00f9 CodeLab te reconna\u00eet.")
         boutons = ('<a class="b" href="' + esc(cible) + '">Annuler</a>'
                    '<button class="b p" id="ok" type="button">Se d\u00e9connecter</button>')
-        script = ('<script>document.getElementById("ok").onclick=function(){'
+        script = ('<script nonce="' + nonce_de_la_reponse() + '">'
+                  'document.getElementById("ok").onclick=function(){'
                   'this.disabled=true;fetch("/logout",{method:"POST",credentials:"same-origin",'
                   'headers:{"X-CodeLab-Jeton":' + json.dumps(jeton_session()) + '}})'
                   '.finally(function(){location.href=' + json.dumps(cible) + ';});};</script>')
@@ -100,7 +101,8 @@ def page_deconnexion():
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
             '<title>D\u00e9connexion \u00b7 CodeLab</title>'
             '<link rel="icon" type="image/png" href="/codelab-onglet.png">'
-            '<style>body{margin:0;min-height:100vh;display:grid;place-items:center;'
+            '<style nonce="' + nonce_de_la_reponse() + '">'
+            'body{margin:0;min-height:100vh;display:grid;place-items:center;'
             'background:#f1f2f7;color:#15172a;font:15px/1.5 -apple-system,BlinkMacSystemFont,'
             '"Segoe UI",Roboto,sans-serif}.c{background:#fff;border-radius:22px;padding:28px 30px;'
             'max-width:400px;margin:16px;box-shadow:0 10px 40px rgba(21,23,42,.1)}'
@@ -457,9 +459,17 @@ def separer_les_origines():
 #       session.
 #   default-src / script-src            un script injecte ne peut plus
 #       charger de code depuis ailleurs, ni renvoyer ce qu'il a lu vers un
-#       serveur tiers. 'unsafe-inline' reste necessaire : les deux pages
-#       portent leur script et leur style en ligne, et les retirer est un
-#       autre chantier. Le reste de la regle garde sa valeur malgre lui.
+#       serveur tiers. Et il ne s'execute plus du tout : script-src n'a plus
+#       'unsafe-inline' (audit du 2026-11-11, R2). Seules les balises
+#       <script> qui portent le NONCE de la reponse s'executent ; un
+#       onclick=, un lien javascript: ou un <script> injecte sont refuses.
+#       Les pages n'ont donc plus aucun gestionnaire en ligne (voir « les
+#       appels du balisage » dans panneau/00-socle.js et login.html).
+#   style-src-elem                      une balise <style> doit porter le
+#       nonce elle aussi. Les attributs style= restent permis (style-src
+#       'unsafe-inline') : ils ne peuvent rien executer, et le balisage en
+#       compte cent soixante. Un navigateur qui ignore style-src-elem
+#       (Safari avant 15.4) retombe sur style-src : la page s'affiche.
 #   base-uri / form-action              une balise <base> injectee
 #       detournerait toutes les adresses relatives de la page ; un formulaire
 #       reecrit posterait le mot de passe ailleurs.
@@ -478,7 +488,42 @@ def separer_les_origines():
 CSP_PANNEAU = ("default-src 'self'; base-uri 'none'; object-src 'none'; "
                "frame-ancestors 'none'; form-action 'self'; "
                "img-src 'self' data:; font-src 'self'; connect-src 'self'; "
-               "style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'")
+               "style-src 'self' 'unsafe-inline'; style-src-elem 'self' 'nonce-__NONCE__'; "
+               "script-src 'self' 'nonce-__NONCE__'")
+
+
+def nonce_de_la_reponse():
+    """Le nonce de la reponse en cours : le meme pour sa CSP et pour chaque
+    balise <script> ou <style> de sa page, un autre a chaque reponse.
+
+    POURQUOI : c'est ce qui distingue le script du panneau d'un script
+      injecte. Un attaquant qui glisserait du HTML dans la page ne connait
+      pas cette valeur, tiree au hasard pour CETTE reponse : sa balise ne
+      s'execute pas.
+    REGLE : 23 de SECURITE.md (aucun gestionnaire en ligne, script-src sans
+      'unsafe-inline').
+    DEPEND DE : page_avec_nonce, appele sur le GABARIT avant toute donnee ;
+      sinon une donnee qui contiendrait le marqueur recevrait le nonce.
+    """
+    if not has_request_context():
+        return ""
+    n = g.get("nonce_csp")
+    if not n:
+        n = g.nonce_csp = secrets.token_urlsafe(18)
+    return n
+
+
+def csp_panneau(cadres=""):
+    """La politique du panneau pour cette reponse, avec son nonce ; plus
+    frame-src quand la page encadre l'origine des applications."""
+    csp = CSP_PANNEAU.replace("__NONCE__", nonce_de_la_reponse())
+    return csp + ("; frame-src " + cadres if cadres else "")
+
+
+def page_avec_nonce(gabarit):
+    """Le gabarit d'une page du panneau, ses balises marquees __NONCE__
+    remplies. A appeler EN PREMIER, avant d'y ecrire la moindre donnee."""
+    return gabarit.replace("__NONCE__", nonce_de_la_reponse())
 
 # Six mois, et sans includeSubDomains. HSTS est un ENGAGEMENT : une fois
 # l'en-tete recu, le navigateur refuse le http pendant toute cette duree, et
@@ -574,7 +619,7 @@ def poser_les_entetes(reponse):
         for k, v in entetes:
             reponse.headers.add(k, v)
         return reponse
-    reponse.headers.setdefault("Content-Security-Policy", CSP_PANNEAU)
+    reponse.headers.setdefault("Content-Security-Policy", csp_panneau())
     reponse.headers.setdefault("X-Frame-Options", "DENY")
     reponse.headers.setdefault("Referrer-Policy", "no-referrer")
     reponse.headers.setdefault(

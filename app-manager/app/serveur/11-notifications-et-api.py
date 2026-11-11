@@ -1901,7 +1901,7 @@ PAGE_HORS_LIGNE = """<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="theme-color" content="#E9EBEE" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0D1015" media="(prefers-color-scheme: dark)">
 <title>CodeLab</title>
-<style>
+<style nonce="__NONCE__">
 :root{--bg:#E9EBEE;--txt:#14181d;--dim:#5b6470;--carte:#fff;--ligne:#dadee3}
 @media (prefers-color-scheme: dark){:root{--bg:#0D1015;--txt:#e8ebef;--dim:#98a2ae;--carte:#161B22;--ligne:#262E38}}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
@@ -1919,8 +1919,8 @@ button{margin-top:8px;font:inherit;font-weight:650;padding:10px 20px;border-radi
 <h1>Serveur injoignable</h1>
 <p>CodeLab ne répond pas : le serveur est arrêté, ou ton téléphone n'a pas de réseau.</p>
 <p id="etat">Nouvel essai dans 5 s.</p>
-<button type="button" onclick="essayer()">Réessayer</button>
-</main><script>
+<button type="button" id="essayer">Réessayer</button>
+</main><script nonce="__NONCE__">
 var n=5;
 function essayer(){
   document.getElementById('etat').textContent='Connexion…';
@@ -1933,6 +1933,7 @@ function tic(){
   n--; setTimeout(tic,1000);
 }
 tic();
+document.getElementById('essayer').addEventListener('click', essayer);
 window.addEventListener('online', essayer);
 </script></body></html>"""
 
@@ -1988,7 +1989,10 @@ self.addEventListener('notificationclick', e => {
 @flask_app.get("/hors-ligne.html")
 def page_hors_ligne():
     # Le logo est DANS la page : hors ligne, rien d'autre ne se charge.
-    r = Response(PAGE_HORS_LIGNE.replace("__LOGO__", base64.b64encode(ICONE_CODELAB_PNG).decode()),
+    # Le service worker la garde AVEC ses en-tetes : servie hors ligne, sa
+    # CSP et ses balises portent toujours le meme nonce.
+    r = Response(page_avec_nonce(PAGE_HORS_LIGNE)
+                 .replace("__LOGO__", base64.b64encode(ICONE_CODELAB_PNG).decode()),
                  mimetype="text/html")
     r.headers["Cache-Control"] = "no-cache"
     return r

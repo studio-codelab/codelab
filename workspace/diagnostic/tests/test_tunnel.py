@@ -336,7 +336,7 @@ def test_la_carte_montre_l_adresse_finale(funnel):
     assert app.etat_du_tunnel()["reseau"] == "tail1234.ts.net"
     js = _lire_source("app-manager/app/panneau/08-reglages.js")
     assert "function tunnelApercu()" in js and "$('tunnel-apercu').textContent=" in js
-    assert 'oninput="tunnelApercu()"' in _page_panneau("dashboard.html")
+    assert 'data-saisir="tunnelApercu"' in _page_panneau("dashboard.html")
 
 
 def test_funnel_qui_attend_un_accord_montre_le_lien_au_lieu_d_un_delai_depasse(funnel,

@@ -201,7 +201,7 @@ function render(){
       <rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></div>
       <h3>Aucune application déclarée</h3>
       <p>Déclare un dossier de /workspace et il sera en ligne en quelques secondes.</p>
-      <button class="btn btn-primary" onclick="openAdd()">Nouvelle application</button>
+      <button class="btn btn-primary" data-agir="openAdd">Nouvelle application</button>
     </div>`);
     return;
   }

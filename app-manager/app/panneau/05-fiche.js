@@ -82,11 +82,11 @@ async function chargerAcces(nom){
      coche la mauvaise case. */
   zone.innerHTML = (comptes.length>6
       ? `<input class="acces-filtre" id="acces-filtre" type="search" placeholder="Rechercher un compte"
-           aria-label="Rechercher un compte" oninput="acFiltrer()" style="margin-bottom:10px">` : '')
+           aria-label="Rechercher un compte" data-saisir="acFiltrer" style="margin-bottom:10px">` : '')
     + comptes.map(c=>
     `<label class="choix-ligne acces-ligne" data-cherche="${esc((c.nom+' '+(c.email||'')).toLowerCase())}">
        <input type="checkbox" data-compte="${esc(c.nom)}" ${c.acces?'checked':''}
-         onchange="acBasculer()">
+         data-changer="acBasculer">
        <span class="acces-initiale" aria-hidden="true">${esc((c.nom||'?').slice(0,1).toUpperCase())}</span>
        <div class="proj-txt"><b>${esc(c.nom)}</b>
          ${c.email ? `<span>${esc(c.email)}</span>` : ''}</div>

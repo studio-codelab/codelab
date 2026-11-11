@@ -13,8 +13,8 @@
    MODULES     panneau/00-socle.js a 08-reglages.js, assembles DANS L'ORDRE en
                un seul script par app.py (PANNEAU_MODULES) : une seule portee,
                comme quand le script tenait en un fichier -- une fonction d'un
-               module peut appeler celle d'un autre, et les attributs
-               onclick/oninput du balisage les trouvent toutes.
+               module peut appeler celle d'un autre, et la table APPELS (fin
+               du script) les reference toutes.
    SERVI PAR   /panneau.js (app.py), a une session seulement, avec
                l'empreinte du fichier dans l'adresse (?v=...) : le navigateur
                le garde en cache jusqu'au deploiement suivant.
@@ -36,10 +36,12 @@
                - Des fichiers par sujet, assembles par le serveur, plutot que
                  neuf balises script : une seule requete, et aucune
                  difference d'execution avec le script d'un seul tenant.
+   CONTRAINTE  - Aucun gestionnaire en ligne (onclick=, oninput=...) ni
+                 balise <script> ou <style> fabriquee ici : la CSP du panneau
+                 les refuse (voir « les appels du balisage »).
    A AMELIORER - Passer aux modules ES (import/export) : chaque fichier
-                 declarerait ce qu'il expose, mais les fonctions appelees
-                 par les attributs onclick/oninput du balisage devraient
-                 alors etre posees a la main sur window.
+                 declarerait ce qu'il expose ; APPELS importerait les
+                 fonctions au lieu de compter sur une portee commune.
    =========================================================================== */
 /* CodeLab -- panneau/00-socle.js : Le socle : appels a l'API (jeton anti-falsification), utilitaires (esc, $), adresses des applications.
    Une partie du script du panneau, assemblee par app.py (PANNEAU_MODULES)
@@ -228,11 +230,13 @@ addEventListener('scroll', e=>{
    L'apostrophe est ajoutee pour les attributs ecrits entre apostrophes.
 
    Ce qu'elle ne fait PAS, et ne peut pas faire : proteger une chaine de
-   PROGRAMME construite dans un attribut, comme onclick="f('...')". Le
-   navigateur decode les entites AVANT de lire le JavaScript : &#39; y
-   redevient une apostrophe, qui referme la chaine. La seule parade est de
-   ne pas fabriquer de programme a partir d'une donnee -- voir ACTIONS plus
-   bas, et le navigateur de dossiers, qui construit du DOM. */
+   PROGRAMME construite dans un attribut (un gestionnaire en ligne qui
+   interpolerait une donnee). Le navigateur decode les entites AVANT de lire
+   le JavaScript : &#39; y redevient une apostrophe, qui referme la chaine.
+   La seule parade est de ne pas fabriquer de programme a partir d'une
+   donnee -- voir ACTIONS plus bas, et le navigateur de dossiers, qui
+   construit du DOM. La CSP le garantit desormais : elle refuse tout
+   gestionnaire en ligne. */
 /* LE NOM QU'ON LIT, ET LA CLE QUI DESIGNE. Depuis que le nom accepte les
    majuscules et les espaces, les deux ne sont plus la meme chaine : « Mon
    Site » s'affiche ainsi et se sert sur /mon-site/. Tout ce qui DESIGNE une
@@ -295,15 +299,64 @@ const ACTIONS = {
   'ver-copier':      () => copierLien(COMMANDES_MAJ, 'Commandes copiées.'),
 };
 
+/* ---------------- les appels du balisage ----------------
+   POURQUOI : la CSP du panneau n'a plus 'unsafe-inline' dans script-src
+     (audit du 2026-11-11, R2). Une injection de HTML ne peut donc plus rien
+     executer : ni <script> sans le nonce de la reponse, ni onclick=, ni
+     lien javascript:. Le balisage ne porte donc plus de programme : un
+     element NOMME son appel, dans data-agir (clic), data-changer (change),
+     data-saisir (saisie) ou data-entree (touche Entree), et ses arguments,
+     s'il en a, sont un tableau JSON dans data-args -- une donnee.
+   REGLE : le nom se cherche dans deux tables FERMEES, ACTIONS (ci-dessus,
+     pour le HTML fabrique a partir de donnees) et APPELS (fin du script,
+     les fonctions du balisage). Rien d'autre n'est appele : un element
+     injecte ne peut pas nommer fetch, open ou postMessage.
+   DEPEND DE : csp_panneau (04-requetes.py), qui refuse le reste ; le test
+     test_le_balisage_du_panneau_ne_porte_aucun_programme, qui verifie que
+     chaque nom du balisage est dans une table.
+   ECARTE : des empreintes sha256 de chaque gestionnaire ('unsafe-hashes') :
+     deux cents empreintes a tenir a jour, et les gestionnaires fabriques
+     par le script y echappaient. */
+function appeler(n, nom){
+  const f = Object.prototype.hasOwnProperty.call(APPELS, nom) && APPELS[nom];
+  if(typeof f !== 'function') return;
+  let args = [];
+  if(n.dataset.args){
+    try{ args = JSON.parse(n.dataset.args); }catch(_){ return; }
+  }
+  if(!Array.isArray(args)) return;
+  f.apply(n, args);
+}
+
 document.addEventListener('click', e => {
   /* closest() trouve le noeud le PLUS PROCHE : un bouton pose dans une ligne
      cliquable gagne sur la ligne, et l'ancien event.stopPropagation() de
      chaque bouton disparait avec. */
   const n = e.target.closest('[data-agir]');
-  const agir = n && ACTIONS[n.dataset.agir];
-  if(!agir) return;
+  if(!n) return;
+  const agir = Object.prototype.hasOwnProperty.call(ACTIONS, n.dataset.agir)
+    && ACTIONS[n.dataset.agir];
+  if(agir){
+    e.preventDefault();
+    agir(n.dataset.cible || '', n.dataset, n);
+    return;
+  }
+  /* Un lien d'appel ne mene nulle part, sauf celui qui telecharge. */
+  if(n.tagName === 'A' && !n.hasAttribute('download')) e.preventDefault();
+  appeler(n, n.dataset.agir);
+});
+
+document.addEventListener('input', e => {
+  const n = e.target.closest && e.target.closest('[data-saisir]');
+  if(n) appeler(n, n.dataset.saisir);
+});
+
+document.addEventListener('keydown', e => {
+  if(e.key !== 'Enter') return;
+  const n = e.target.closest && e.target.closest('[data-entree]');
+  if(!n) return;
   e.preventDefault();
-  agir(n.dataset.cible || '', n.dataset, n);
+  appeler(n, n.dataset.entree);
 });
 
 /* Une ligne cliquable (role="button") repond aussi au clavier. */
@@ -316,10 +369,12 @@ document.addEventListener('keydown', e => {
 
 document.addEventListener('change', e => {
   const n = e.target.closest('[data-changer]');
-  if(n && n.dataset.changer === 'app-masquer')
+  if(!n) return;
+  if(n.dataset.changer === 'app-masquer')
     basculerMasquage(n.dataset.cible, !e.target.checked);
-  if(n && n.dataset.changer === 'presentation-visible')
+  else if(n.dataset.changer === 'presentation-visible')
     basculerPresentation(n.dataset.cible, e.target.checked);
-  if(n && n.dataset.changer === 'presentation-fichier')
+  else if(n.dataset.changer === 'presentation-fichier')
     choisirVideo(n.dataset.cible, e.target.value);
+  else appeler(n, n.dataset.changer);
 });

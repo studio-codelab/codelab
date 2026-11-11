@@ -312,7 +312,7 @@ function peindreAppareils(liste){
       <button class="btn btn-default btn-sm" data-agir="appareil-deconnecter" data-cible="${esc(a.id)}"
         ${a.courant ? 'data-courant="1"' : ''}>${a.courant ? 'Me déconnecter' : 'Déconnecter'}</button></div>`).join('')
     : '<p class="hint">Aucun appareil.</p>')
-    + (caches ? `<button type="button" class="btn btn-default btn-sm ap-plus" onclick="apTout=true;peindreAppareils(apDerniers)">Afficher les ${caches} autres</button>` : ''));
+    + (caches ? `<button type="button" class="btn btn-default btn-sm ap-plus" data-agir="apToutAfficher">Afficher les ${caches} autres</button>` : ''));
   $('ap-autres').disabled = !liste.some(a=>!a.courant);
 }
 async function chargerAppareils(){
@@ -364,7 +364,7 @@ function peindreSauvegardes(d){
   remplir($('sg-liste'), lignes.map(a=>`<div class="sg-ligne"><div class="sg-quoi"><b>${a.genre==='panneau'
       ? 'Le panneau' : 'Les projets'}</b><small>${esc(a.nom)} · ${tailleLisible(a.taille)} · ${ilYA(a.date)}</small></div>
     <a class="btn btn-default btn-sm" href="/api/sauvegardes/${encodeURIComponent(a.nom)}" download
-       onclick="setTimeout(chargerSauvegardes, 1500)">Télécharger</a></div>`).join(''));
+       data-agir="sgApresTelechargement">Télécharger</a></div>`).join(''));
 }
 async function chargerSauvegardes(){
   try{
@@ -870,3 +870,58 @@ function reposerIcone(){
 }
 window.addEventListener('pageshow', reposerIcone);
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) reposerIcone(); });
+
+/* ---------------- la table des appels du balisage ----------------
+   Les fonctions que dashboard.html et le HTML fabrique ici nomment dans
+   data-agir, data-changer, data-saisir ou data-entree (voir « les appels du
+   balisage », 00-socle.js). this vaut l'element ; data-args donne les
+   arguments. EN FIN DE SCRIPT : chaque fonction citee est declaree plus
+   haut (hide compris), et une reference a un nom absent arreterait tout le
+   script au chargement -- le test le verifie avant.
+   Une fonction absente d'ici ne peut pas etre appelee par le balisage :
+   c'est voulu (table fermee). */
+const APPELS = {
+  /* Appel direct : data-args donne les arguments. */
+  acBasculer, acFiltrer, acGenre, acTaille, alBasculer, alEnregistrer,
+  alSetTls, allerA, apDeconnecterAutres, apFiltrer, apVue, applySuggestion,
+  basculerEdition, catAjouter, catEnregistrer, catRetirer, chargerCarte,
+  confirmerReponse, confirmerSuppressionCompte, doLogout, essayerConnexion,
+  faceIdActiver, faceIdPlusTard, fermerMenuMobile, fermerPresentation,
+  ficheOnglet, hide, installerCodelab, invEnvoyer, invFormulaire,
+  logoChoisir, logoRetirer, mailConfirmer, mailEnregistrer, mailRenvoyer,
+  mdpChanger, msgCible, msgEnvoyer, openAdd, ouvrirGalerie,
+  ouvrirSuppressionCompte, paramOnglet, peindreHub, pkAjouter,
+  profilEnregistrer, redemarrerDepuisConfig, renderLogFilter, renommerApp,
+  revenirCouleurPerso, setHub, setTheme, setVisAdd, setVisEdit, showSection,
+  smtpPlusTard, smtpRegler, submitAdd, submitEdit, svEnregistrer,
+  toggleAcctMenu, toggleEditBrowse, toggleSidebar, totpActiver, totpAnnuler,
+  totpDesactiver, totpPreparer, tunnelApercu, tunnelDeconnecter,
+  tunnelEnregistrer, tunnelQr, usCreer, usDeconnecterAppareils,
+  usEnregistrer, usFiltrer, usFormulaire, usReinitTotp, usRetirerCles,
+  usSupprimer, usSuspendre, viderLog,
+  /* Ceux qui lisent l'element, ou en font plusieurs. */
+  acPrecedente(){ acAllerA(acPage-1); },
+  acSuivante(){ acAllerA(acPage+1); },
+  aideDepuisAjout(){ hide('ov-add'); ouvrirAide(); },
+  apToutAfficher(){ apTout=true; peindreAppareils(apDerniers); },
+  apTrier(){ apTrier(this.value); },
+  archiverLaFiche(){ archiver(ficheNom); },
+  bwApplication(){ hubMessageApp=this.value; },
+  bwBrouillon(){ hubMessageBrouillon=this.value; },
+  bwEnvoyer(){ bwEnvoyer(this); },
+  choisirCouleurPerso(){ choisirCouleurPerso(this.value); },
+  cjChanger(){ cjChanger(this); },
+  compterDescription(){ compterDescription(this); },
+  creerSansInviter(){ invFormulaire(false); usFormulaire(true); },
+  deposerLesPieces(cle){ deposerPieces(cle, this.files); this.value=''; },
+  logoEnvoyer(){ logoEnvoyer(this); },
+  notifBasculer(){ notifBasculer(this); },
+  notifEssai(){ notifEssai(this); },
+  parametresDuCompte(){ allerA('parametres'); paramOnglet('compte'); },
+  pkBasculer(){ pkBasculer(this); },
+  selectionner(){ this.select(); },
+  sgApresTelechargement(){ setTimeout(chargerSauvegardes, 1500); },
+  sgCopieExterne(){ sgCopieExterne(this.checked); },
+  supprimerLaFiche(){ rm(ficheNom); },
+  tunnelBasculer(){ tunnelBasculer(this); },
+};

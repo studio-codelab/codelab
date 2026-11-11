@@ -274,7 +274,13 @@ function plierLesCartes(){
     carte.classList.add('pliable');
     tete.setAttribute('role','button');
     tete.setAttribute('tabindex','0');
-    tete.addEventListener('click', ()=>pliBasculer(carte));
+    /* L'interrupteur pose dans le titre change son reglage, il ne replie
+       pas la carte. (Avant : un onclick « stopPropagation » sur chaque
+       interrupteur, refuse par la CSP.) */
+    tete.addEventListener('click', e=>{
+      if(e.target.closest('.interrupteur')) return;
+      pliBasculer(carte);
+    });
     /* Au clavier comme a la souris : une poignee qui ne repond qu'au pointeur
        enferme dehors ceux qui naviguent en tabulation. */
     tete.addEventListener('keydown', e=>{

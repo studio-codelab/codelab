@@ -1106,8 +1106,8 @@ def test_la_fenetre_du_compte_offre_les_deux_gestes():
     """Suspendre et supprimer cote a cote, et la difference expliquee : ce
     sont deux gestes qu'on confond tant qu'on ne l'a pas lue."""
     page = _page_panneau("dashboard.html")
-    assert 'id="us-f-suspendre"' in page and 'onclick="usSuspendre()"' in page
-    assert 'onclick="usSupprimer()"' in page
+    assert 'id="us-f-suspendre"' in page and 'data-agir="usSuspendre"' in page
+    assert 'data-agir="usSupprimer"' in page
     bloc = page.split("async function usSuspendre(){")[1].split("\n}")[0]
     assert "suspendu: suspendre" in bloc, "le bouton n'envoie pas l'etat"
     assert "demander(" in bloc, "suspendre sans confirmation se clique par accident"
@@ -1804,7 +1804,8 @@ def test_face_id_se_desactive_d_un_geste(deux_espaces):
 
 def test_les_parametres_ont_un_interrupteur_face_id():
     page = _page_panneau("dashboard.html")
-    assert 'id="pk-bascule" onchange="pkBasculer(this)"' in page
+    assert 'id="pk-bascule" data-changer="pkBasculer"' in page
+    assert "pkBasculer(){ pkBasculer(this); }" in page
     assert "fetch('/api/mon-compte/passkeys',{method:'DELETE'})" in page
     # Plus de champ « Nom de la cle » a remplir : le nom suit l'appareil.
     assert 'placeholder="Téléphone"' not in page
@@ -2153,7 +2154,7 @@ def test_la_deconnexion_depuis_une_application_demande_confirmation(deux_origine
         assert s.get("authed")
     # Une application inconnue ne fait pas une cible : retour au panneau.
     page = c.get("/deconnexion.html?app=evil", **_sur_port(9301)).get_data(as_text=True)
-    assert '"/"' in page and "evil" not in page.split("<script>")[1]
+    assert '"/"' in page and "evil" not in page.split("<script nonce=")[1]
 
 
 
@@ -2508,7 +2509,7 @@ def test_le_compte_d_administration_ne_se_supprime_pas(deux_espaces):
     session_ = page.split('id="zone-session"')[1].split('<div class="zone"')[0]
     # Toujours la, jamais repliee, et la suppression pour un compte
     # utilisateur seulement.
-    assert "settings-card sans-pli" in session_ and "doLogout()" in session_
+    assert "settings-card sans-pli" in session_ and 'data-agir="doLogout"' in session_
     assert 'class="btn btn-default utilisateur-seul" id="compte-supprimer"' in session_
     assert "#zone-session .utilisateur-seul{display:none}" in page
     assert "confirm(" not in page.split("function confirmerSuppressionCompte")[1].split("\n}")[0]

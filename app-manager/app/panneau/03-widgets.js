@@ -351,18 +351,18 @@ function widgetMessage(taille){
     <div class="bw-sujets" role="radiogroup" aria-label="C'est pour">${SUJETS_MESSAGE.map(([v,t])=>
       `<button type="button" role="radio" aria-checked="${hubMessageCible===v}" data-agir="bw-sujet" data-cible="${v}">${t}</button>`).join('')}</div>
     ${hubMessageCible==='application' ? `<label class="sr" for="bw-message-app">Quelle application</label>
-      <select id="bw-message-app" onchange="hubMessageApp=this.value">${apps.map(a=>
+      <select id="bw-message-app" data-changer="bwApplication">${apps.map(a=>
         `<option value="${esc(a.name)}" ${a.name===hubMessageApp?'selected':''}>${esc(nomAffiche(a))}</option>`).join('')}</select>` : ''}
     <label class="sr" for="bw-message-texte">Ton message</label>
     <textarea id="bw-message-texte" data-garder="message" data-pieces="widget" maxlength="2000"
       placeholder="Pour l'admin : une idée, un souci, une demande d'accès."
-      oninput="hubMessageBrouillon=this.value">${esc(hubMessageBrouillon)}</textarea>
+      data-saisir="bwBrouillon">${esc(hubMessageBrouillon)}</textarea>
     <div class="bw-bas">
       <label class="joindre" title="Joindre une image ou un PDF"><span class="sr">Joindre une image ou un PDF</span>
         <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf" multiple
-               onchange="deposerPieces('widget', this.files); this.value=''">${SVG_TROMBONE}</label>
+               data-changer="deposerLesPieces" data-args='["widget"]'>${SVG_TROMBONE}</label>
       <div class="pj-liste">${piecesHtml('widget')}</div>
-      <button class="btn btn-primary" onclick="bwEnvoyer(this)">Envoyer</button></div>`;
+      <button class="btn btn-primary" data-agir="bwEnvoyer">Envoyer</button></div>`;
 }
 async function bwEnvoyer(b){
   const t=$('bw-message-texte'), texte=(t.value||'').trim();

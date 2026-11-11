@@ -43,7 +43,7 @@ function peindreCategories(){
     + (libres.length
     ? libres.map((c,i)=>`<div class="cat-ligne">
         <input value="${esc(c)}" maxlength="30" aria-label="Catégorie ${i+1}">
-        <button class="icon-btn" title="Retirer" onclick="catRetirer(${i})">
+        <button class="icon-btn" title="Retirer" data-agir="catRetirer" data-args="[${i}]">
           <svg viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg></button>
       </div>`).join('')
     : '<div class="cat-vide">Aucune autre catégorie pour l’instant.</div>');
@@ -317,7 +317,7 @@ function widgetSuivi(taille){
     <p>${n ? (n>1 ? 'mises à jour' : 'mise à jour') : 'en cours'}</p></div>`;
   return titre+`<div class="bw-liste">${liste.slice(0,3).map(m=>`<div><span>${esc(sujetSuivi(m))}</span>
       <span class="suivi-etat e-${m.suivi.etape}">${NOM_ETAPE[m.suivi.etape]||''}</span></div>`).join('')}</div>
-    <button type="button" class="bento-bouton" onclick="allerA('message')">${n ? n+' nouveauté'+(n>1?'s':'') : 'Tout voir'} ${SVG_FLECHE}</button>`;
+    <button type="button" class="bento-bouton" data-agir="allerA" data-args='["message"]'>${n ? n+' nouveauté'+(n>1?'s':'') : 'Tout voir'} ${SVG_FLECHE}</button>`;
 }
 
 /* ---------------- le hub, en grille et seulement en grille ----------------
@@ -513,8 +513,7 @@ function peindreHub(){
   if(nbCaches){
     remplir($('hub-masquees'), nbCaches + (nbCaches>1
       ? ' applications masquées — ' : ' application masquée — ')
-      + '<a href="#" onclick="event.preventDefault();allerA(\'parametres\');'
-      + 'paramOnglet(\'compte\')">à décocher dans tes paramètres</a> pour '
+      + '<a href="#" data-agir="parametresDuCompte">à décocher dans tes paramètres</a> pour '
       + (nbCaches>1 ? 'les' : 'la') + ' revoir.');
   }
   peindreBento(liste, filtre);

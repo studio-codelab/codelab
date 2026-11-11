@@ -58,7 +58,7 @@ __ECRANS_DEMARRAGE__
      <html>, avant tout affichage. Une seule copie pour les trois pages. -->
 <script src="/mode.js"></script>
 
-<style>
+<style nonce="__NONCE__">
 /* Le THEME (couleurs, formes, tailles) vit dans theme.css, servi par le
    panneau et partage avec l'autre page. Ici ne restent que les regles
    propres a cet ecran. Pour repeindre le panneau : theme.css, pas ici. */
@@ -269,7 +269,7 @@ button.principal:disabled{opacity:.6;cursor:default}
            utiliser (HTTPS, nom de domaine, et la bibliotheque installee) :
            un bouton qui echoue toujours est pire qu'un bouton absent. -->
       <div id="pk-zone" style="display:none">
-        <button class="bouton-geste" id="pk-go" onclick="connexionPasskey()">
+        <button class="bouton-geste" id="pk-go" data-agir="connexionPasskey">
           <span class="geste-ico" aria-hidden="true"></span>
           <span id="pk-libelle">Continuer avec Face ID</span></button>
         <div class="ou">ou avec ton mot de passe</div>
@@ -300,7 +300,7 @@ button.principal:disabled{opacity:.6;cursor:default}
              avec sa cle d'acces : ni mot de passe a choisir, ni code. Montre
              seulement quand l'appareil ET le serveur savent le faire. -->
         <div id="inv-pk" style="display:none;margin-top:14px">
-          <button type="button" class="bouton-geste" id="inv-pk-go" onclick="invitationPasskey()">
+          <button type="button" class="bouton-geste" id="inv-pk-go" data-agir="invitationPasskey">
             <span class="geste-ico" aria-hidden="true"></span>
             <span id="inv-pk-libelle">Créer mon compte avec Face ID</span></button>
           <div class="ou">ou avec un mot de passe</div>
@@ -344,7 +344,7 @@ button.principal:disabled{opacity:.6;cursor:default}
              confirme que c'est bien la personne. Aucun code a lire ni a
              taper. -->
         <div id="facteur-pk" style="display:none">
-          <button type="button" class="bouton-geste" id="facteur-pk-go" onclick="facteurPasskey()">
+          <button type="button" class="bouton-geste" id="facteur-pk-go" data-agir="facteurPasskey">
             <span class="geste-ico" aria-hidden="true"></span>
             <span>Confirmer avec <span id="facteur-pk-geste">Face ID</span></span></button>
         </div>
@@ -361,10 +361,10 @@ button.principal:disabled{opacity:.6;cursor:default}
         <div class="etape">Dernière étape : protège ton compte.</div>
 
         <div id="ins-pk" style="display:none">
-          <button type="button" class="principal" id="ins-pk-go" onclick="inscrirePasskey()">
+          <button type="button" class="principal" id="ins-pk-go" data-agir="inscrirePasskey">
             <span id="ins-pk-libelle">Activer Face ID</span></button>
           <div class="etape-num">Un geste, rien à recopier. La prochaine fois, il suffira.</div>
-          <div class="bascule"><a onclick="montrerCodeApp()">Utiliser plutôt une application de codes</a></div>
+          <div class="bascule"><a data-agir="montrerCodeApp">Utiliser plutôt une application de codes</a></div>
         </div>
 
         <div id="ins-totp">
@@ -376,7 +376,7 @@ button.principal:disabled{opacity:.6;cursor:default}
                a recopier reste : l'inscription ne depend pas de lui. -->
           <img class="qr" id="qr" alt="QR code du second facteur">
           <details class="etape-num"><summary style="cursor:pointer">Saisir la clé à la main</summary>
-            <div class="secret" id="secret" onclick="copierSecret()" title="Cliquer pour copier"></div>
+            <div class="secret" id="secret" data-agir="copierSecret" title="Cliquer pour copier"></div>
           </details>
           <div class="etape-num">Puis saisis le code à six chiffres affiché :</div>
           <input type="text" id="code-inscription" inputmode="numeric" autocomplete="one-time-code"
@@ -393,7 +393,7 @@ button.principal:disabled{opacity:.6;cursor:default}
            compte, par l'administrateur sinon. Le lien reste discret -- on ne
            l'ouvre qu'une fois tous les six mois. -->
       <div class="bascule" id="oubli-lien-zone">
-        <a id="oubli-lien" onclick="ouvrirOubli()">Mot de passe oublié ?</a>
+        <a id="oubli-lien" data-agir="ouvrirOubli">Mot de passe oublié ?</a>
       </div>
 
       <div id="oubli" style="display:none">
@@ -406,7 +406,7 @@ button.principal:disabled{opacity:.6;cursor:default}
           son mot de passe est celui de <code>credentials.env</code>, sur le serveur.</div>
         <div class="field" style="margin-top:12px"><label>Nom du compte</label>
           <input type="text" id="oubli-nom" autocomplete="username"></div>
-        <button class="secondaire" id="oubli-envoyer" onclick="demanderCode()"
+        <button class="secondaire" id="oubli-envoyer" data-agir="demanderCode"
           style="margin-top:10px">Envoyer le code</button>
 
         <div id="oubli-suite" style="display:none">
@@ -417,12 +417,12 @@ button.principal:disabled{opacity:.6;cursor:default}
             <input type="password" id="oubli-mdp" autocomplete="new-password"></div>
           <div class="etape-num">12 caractères au minimum. Tu te reconnecteras ensuite avec
             Face ID ou ton application : le code par mail reste suspendu jusque-là.</div>
-          <button class="principal" id="oubli-poser" onclick="poserMotDePasse()"
+          <button class="principal" id="oubli-poser" data-agir="poserMotDePasse"
             style="margin-top:10px">Changer le mot de passe</button>
         </div>
         <div class="err" id="oubli-err"></div>
         <div class="ok" id="oubli-ok"></div>
-        <div class="bascule"><a onclick="fermerOubli()">Revenir à la connexion</a></div>
+        <div class="bascule"><a data-agir="fermerOubli">Revenir à la connexion</a></div>
       </div>
       <div class="ok" id="copie">Clé copiée.</div>
 
@@ -438,7 +438,7 @@ button.principal:disabled{opacity:.6;cursor:default}
   </div>
 </div>
 
-<script>
+<script nonce="__NONCE__">
 
 const pw=document.getElementById('pw'), err=document.getElementById('err'), go=document.getElementById('go');
 const code=document.getElementById('code'), nom=document.getElementById('nom');
@@ -834,12 +834,12 @@ function afficherCode(d){
      rien ne part, rien ne se demande, tant qu'on ne les choisit pas. */
   const autres=(d.moyens||[]).filter(m=>m!==d.moyen && LIBELLES_MOYEN[m]);
   const liens=[];
-  if(parMail) liens.push(`<a id="renvoyer" onclick="choisirMoyen('email')">Renvoyer le code</a>`);
-  if(autres.length) liens.push(`<a id="autre-moyen" onclick="basculerAutresMoyens()">Essayer une autre méthode</a>`);
+  if(parMail) liens.push(`<a id="renvoyer" data-agir="choisirMoyen" data-args='["email"]'>Renvoyer le code</a>`);
+  if(autres.length) liens.push(`<a id="autre-moyen" data-agir="basculerAutresMoyens">Essayer une autre méthode</a>`);
   $$('code-moyens').innerHTML=liens.join('');
   const icone = m => m==='passkey' ? iconeGeste() : m==='email' ? ICONES.mail : ICONES.appli;
   $$('autres-moyens').innerHTML=autres.map(m=>
-    `<button type="button" onclick="choisirMoyen('${m}')">${icone(m)}<span>${esc(LIBELLES_MOYEN[m])}</span></button>`).join('');
+    `<button type="button" data-agir="choisirMoyen" data-args='["${m}"]'>${icone(m)}<span>${esc(LIBELLES_MOYEN[m])}</span></button>`).join('');
   $$('autres-moyens').classList.remove('ouvert');
   viderCases();
   document.querySelector('.boite h2').textContent = parCle ? nomDuGeste()
@@ -1063,6 +1063,26 @@ function reposerIcone(){
 }
 window.addEventListener('pageshow', reposerIcone);
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) reposerIcone(); });
+
+/* LES APPELS DU BALISAGE. Aucun gestionnaire en ligne : la CSP du panneau
+   les refuse (audit du 2026-11-11, R2 ; voir « les appels du balisage »
+   dans panneau.js, meme principe). Un element nomme sa fonction dans
+   data-agir, ses arguments en JSON dans data-args, et seule une fonction de
+   cette table FERMEE repond : un element injecte ne peut rien nommer
+   d'autre. */
+const APPELS = {basculerAutresMoyens, choisirMoyen, connexionPasskey, copierSecret,
+                demanderCode, facteurPasskey, fermerOubli, inscrirePasskey,
+                invitationPasskey, montrerCodeApp, ouvrirOubli, poserMotDePasse};
+document.addEventListener('click', e=>{
+  const n=e.target.closest('[data-agir]');
+  const f=n && Object.prototype.hasOwnProperty.call(APPELS, n.dataset.agir) && APPELS[n.dataset.agir];
+  if(typeof f!=='function') return;
+  let args=[];
+  try{ args=JSON.parse(n.dataset.args||'[]'); }catch(_){ return; }
+  if(!Array.isArray(args)) return;
+  if(n.tagName==='A') e.preventDefault();
+  f.apply(n, args);
+});
 </script>
 </div>
 </body></html>

@@ -115,7 +115,7 @@ def login_page(invitation=False):
         # Deja connecte : « Se connecter avec CodeLab » depuis une
         # application ramene directement dedans, sans formulaire.
         return redirect(suite_locale(request.args.get("suite")))
-    return Response(avec_style(LOGIN_PAGE), mimetype="text/html")
+    return Response(avec_style(page_avec_nonce(LOGIN_PAGE)), mimetype="text/html")
 
 
 # ------------------------------ le nuancier ------------------------------
@@ -429,7 +429,7 @@ def index():
     # Les valeurs entrent dans un script en ligne (window.CODELAB_PAGE) :
     # _json_dans_un_script les ecrit en JSON ET y echappe « < », pour qu'aucune
     # ne puisse fermer la balise (un nom de compte, une racine, une adresse).
-    page = (DASHBOARD_PAGE
+    page = (page_avec_nonce(DASHBOARD_PAGE)
             .replace("__JETON__", _json_dans_un_script(jeton_session()))
             .replace("__APPS_MODELE__", _json_dans_un_script(modele_adresse_application()))
             .replace("__ROOT__", _json_dans_un_script(ROOT))
@@ -449,7 +449,7 @@ def index():
     # droit d'encadrer l'origine des applications -- et elle seule. Les
     # applications, elles, n'acceptent d'etre encadrees que par le panneau
     # (proteger_l_encadrement).
-    r.headers["Content-Security-Policy"] = CSP_PANNEAU + "; frame-src " + cadres_permis()
+    r.headers["Content-Security-Policy"] = csp_panneau(cadres_permis())
     return r
 
 
@@ -490,12 +490,14 @@ def ouvrir_dans_le_panneau():
     valeurs = {"TITRE": esc(titre),
                "ICONE": urllib.parse.quote(nom, safe=""),
                "CIBLE": esc(cible),
-               "ORIGINE": json.dumps(origine_de_l_application(nom)).replace("<", "\\u003c")}
-    page = re.sub(r"__(TITRE|ICONE|CIBLE|ORIGINE)__", lambda m: valeurs[m.group(1)], OUVRIR_PAGE)
+               "ORIGINE": json.dumps(origine_de_l_application(nom)).replace("<", "\\u003c"),
+               "NONCE": nonce_de_la_reponse()}
+    page = re.sub(r"__(TITRE|ICONE|CIBLE|ORIGINE|NONCE)__", lambda m: valeurs[m.group(1)],
+                  OUVRIR_PAGE)
     r = Response(page, mimetype="text/html")
     # La politique du panneau, plus le droit d'encadrer l'origine des
     # applications -- et elle seule.
-    r.headers["Content-Security-Policy"] = CSP_PANNEAU + "; frame-src " + cadres_permis()
+    r.headers["Content-Security-Policy"] = csp_panneau(cadres_permis())
     r.headers["Cache-Control"] = "no-store"
     return r
 

@@ -1496,7 +1496,7 @@ def test_le_dossier_est_rendu_au_nouvel_identifiant(a_renommer, monkeypatch):
 def test_la_page_offre_le_renommage(a_renommer):
     """Le champ existe vraiment, et il est fige pour le diagnostic."""
     page = _page_panneau("dashboard.html")
-    assert 'id="e-nom"' in page and 'onclick="renommerApp()"' in page
+    assert 'id="e-nom"' in page and 'data-agir="renommerApp"' in page
     bloc = page.split("async function renommerApp(){")[1].split("\n}")[0]
     assert "/renommer" in bloc
     # Apres coup, la fiche doit suivre le nouveau nom : sinon elle interroge
@@ -2422,5 +2422,6 @@ def test_sans_adresse_publique_on_ouvre_au_reseau_local(hub, monkeypatch):
     assert c.post("/api/visibility/vitrine", json={}).get_json()["visibility"] == "privee"
     assert c.get("/api/apps/secret/acces").get_json()["locale"] is True
     page = _page_panneau("dashboard.html")
-    assert '<button data-v="locale" onclick="setVisEdit(\'locale\')">Réseau local</button>' in page
-    assert '<button data-v="locale" onclick="setVisAdd(\'locale\')">Réseau local</button>' in page
+    for appel in ("setVisEdit", "setVisAdd"):
+        assert (f'<button data-v="locale" data-agir="{appel}" data-args=\'["locale"]\'>'
+                'Réseau local</button>') in page

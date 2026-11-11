@@ -1271,6 +1271,81 @@ def test_le_panneau_pose_ses_entetes_de_securite(client):
 
 
 
+def _nonce_de_la_csp(csp):
+    m = re.search(r"script-src 'self' 'nonce-([A-Za-z0-9_-]{20,})'(;|$)", csp)
+    assert m, "script-src sans nonce : " + csp
+    return m.group(1)
+
+
+def test_la_csp_du_panneau_n_execute_que_ses_propres_scripts(client, monkeypatch):
+    """Audit du 2026-11-11, R2 : 'unsafe-inline' laissait s'executer un
+    script injecte dans une page du panneau. script-src n'a plus que 'self'
+    et le nonce de la reponse ; chaque balise <script> en ligne de la page
+    porte ce nonce, chaque <style> aussi, et il change a chaque reponse."""
+    client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    vus = set()
+    for chemin in ("/login?x", "/", "/parametres", "/hors-ligne.html", "/deconnexion.html"):
+        r = client.get(chemin)
+        csp = r.headers["Content-Security-Policy"]
+        nonce = _nonce_de_la_csp(csp)
+        assert "'unsafe-inline'" not in csp.split("script-src")[1], csp
+        assert f"style-src-elem 'self' 'nonce-{nonce}'" in csp
+        page = r.get_data(as_text=True)
+        assert "__NONCE__" not in page, chemin
+        for balise in re.findall(r"<(?:script|style)\b[^>]*>", page):
+            if "src=" in balise:
+                continue
+            assert f'nonce="{nonce}"' in balise, (chemin, balise)
+        vus.add(nonce)
+    assert len(vus) == 5, "un nonce par reponse"
+    # Une donnee qui contient le marqueur ne recoit pas le nonce : il est pose
+    # sur le gabarit, avant les donnees.
+    monkeypatch.setattr(app, "lire_profil", lambda *a: {"prenom": "__NONCE__", "nom": ""})
+    page = client.get("/").get_data(as_text=True)
+    assert '"prenom": "__NONCE__"' in page
+
+
+def _noms_appeles(texte):
+    return set(re.findall(r'data-(?:agir|changer|saisir|entree)="([^"$]+)"', texte))
+
+
+def test_le_balisage_du_panneau_ne_porte_aucun_programme():
+    """La CSP refuse les gestionnaires en ligne : il n'en reste aucun dans
+    les pages du panneau ni dans le HTML que fabriquent leurs scripts, et
+    chaque appel qu'elles nomment est dans une table FERMEE (ACTIONS ou
+    APPELS) -- un element injecte ne peut rien nommer d'autre."""
+    gestionnaire = re.compile(r"\son[a-z]+\s*=\s*[\"'\\\\]")
+    panneau = _lire_source("app-manager/app/dashboard.html") + "".join(
+        _lire_source("app-manager/app/panneau/" + n) for n in app.PANNEAU_MODULES)
+    pages = {"panneau": panneau,
+             "login": _lire_source("app-manager/app/login.html"),
+             "suppression": _lire_source("app-manager/app/suppression.html"),
+             "ouvrir": _lire_source("app-manager/app/ouvrir.html"),
+             "hors-ligne": app.PAGE_HORS_LIGNE}
+    for nom, texte in pages.items():
+        sans_commentaires = re.sub(r"<!--.*?-->|/\*.*?\*/", "", texte, flags=re.S)
+        assert not gestionnaire.findall(sans_commentaires), nom
+        assert "javascript:" not in sans_commentaires, nom
+    # Les deux tables du panneau, disjointes, et rien hors d'elles.
+    actions = set(re.findall(r"^\s*'([a-z-]+)':", panneau.split("const ACTIONS = {")[1]
+                             .split("\n};")[0], re.M))
+    bloc = panneau.split("const APPELS = {")[1].split("\n};")[0]
+    appels = set(re.findall(r"\b([A-Za-z]\w*)(?=,|\(\)\{|\(cle\)\{)", bloc))
+    assert actions and appels and not actions & appels
+    speciaux = {"app-masquer", "presentation-visible", "presentation-fichier"}
+    hors_table = _noms_appeles(panneau) - actions - appels - speciaux
+    assert not hors_table, hors_table
+    # Chaque reference directe de APPELS est une fonction declaree : un nom
+    # absent arreterait tout le script au chargement.
+    directs = re.findall(r"\b([A-Za-z]\w*),", bloc.split("/* Ceux qui lisent")[0])
+    for nom in directs:
+        assert (re.search(rf"^\s*(async\s+)?function {nom}\(", panneau, re.M)
+                or f"{nom}=i=>" in panneau), nom
+    login = pages["login"]
+    table = login.split("const APPELS = {")[1].split("};")[0]
+    assert _noms_appeles(login) <= set(re.findall(r"\w+", table))
+
+
 def test_hsts_n_est_pose_que_derriere_du_tls(client, monkeypatch):
     """HSTS est un ENGAGEMENT : le navigateur refuse ensuite le http pendant
     toute sa duree. Le poser sur une installation servie en clair la rendrait

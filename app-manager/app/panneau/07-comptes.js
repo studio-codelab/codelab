@@ -333,7 +333,7 @@ function invMontrerResultat(d, adresse){
         + `gardée sans partir. Transmets ce lien toi-même :`);
   z.innerHTML = `<div class="hint">${etat}</div>
     <div class="ligne-champ" style="margin-top:6px">
-      <input readonly value="${esc(d.lien)}" style="flex:1" onclick="this.select()">
+      <input readonly value="${esc(d.lien)}" style="flex:1" data-agir="selectionner">
       <button class="btn btn-default btn-sm" data-agir="invitation-copier" data-lien="${esc(d.lien)}">Copier</button>
     </div>`;
   z.style.display='block';

@@ -210,7 +210,8 @@ Sans lui, les réglages chiffrés deviennent illisibles.
   - `X-Forwarded-For` n'est jamais cru ;
   - une requête relayée (`X-Forwarded-*`) n'atteint jamais l'administration.
 - **En-têtes du panneau** : CSP stricte (`default-src 'self'`, `frame-ancestors 'none'`,
-  `form-action 'self'`), `nosniff`, `Referrer-Policy: no-referrer`. La page du hub ajoute
+  `form-action 'self'`, scripts et balises de style au seul nonce de la réponse : un script injecté
+  ne s'exécute pas, règle 23), `nosniff`, `Referrer-Policy: no-referrer`. La page du hub ajoute
   `frame-src` pour la seule origine des applications : le widget « À la une » y affiche un aperçu
   inerte (`sandbox`, sans clic) de la dernière application ouverte.
 - **Exposition recommandée** : un VPS qui porte le domaine et le certificat, et un tunnel WireGuard
@@ -355,6 +356,11 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 20. Les applications et leurs builds ne tournent jamais en root.
 21. Un nom d'application ne peut pas prendre celui d'une route du panneau : la liste est tirée de la
     table des routes elle-même.
+23. Les pages du panneau n'exécutent que leurs propres scripts : `script-src` n'a pas
+    `'unsafe-inline'`, chaque balise `<script>` ou `<style>` en ligne porte le nonce de sa réponse
+    (posé sur le gabarit avant toute donnée), et le balisage ne porte aucun gestionnaire en ligne :
+    un élément nomme son appel (`data-agir`, `data-changer`, `data-saisir`, `data-entree`), cherché
+    dans une table fermée.
 
 ## Ce que CodeLab ne protège pas
 

@@ -674,7 +674,8 @@ def page_approbation(ident):
         corps = ('<div class="r n3">' + boutons + '</div>'
                  '<div class="r"><button class="b" type="button" id="non">Ce n’est pas moi'
                  '</button></div><p id="fin" hidden></p>')
-        script = ('<script>(function(){var j=' + _json_dans_un_script(jeton_session())
+        script = ('<script nonce="' + nonce_de_la_reponse() + '">(function(){var j='
+                  + _json_dans_un_script(jeton_session())
                   + ',id=' + _json_dans_un_script(ident) + ';'
                   'function envoyer(c){document.querySelectorAll("button").forEach(function(b){'
                   'b.disabled=true;});fetch("/api/approbations/"+encodeURIComponent(id),'
@@ -695,7 +696,8 @@ def page_approbation(ident):
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
             '<title>Connexion à approuver · CodeLab</title>'
             '<link rel="stylesheet" href="/theme.css">'
-            '<style>body{margin:0;min-height:100vh;display:grid;place-items:center;'
+            '<style nonce="' + nonce_de_la_reponse() + '">'
+            'body{margin:0;min-height:100vh;display:grid;place-items:center;'
             'background:var(--bg);color:var(--txt);font:15px/1.5 -apple-system,'
             'BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}.c{background:var(--surface);'
             'border-radius:22px;padding:28px 26px;max-width:400px;margin:16px}'
@@ -2859,7 +2861,7 @@ def refuser_un_compte_en_suppression():
     if prevue is None:
         return None
     if request.endpoint in PAGES_DU_COMPTE:
-        page = (SUPPRESSION_PAGE
+        page = (page_avec_nonce(SUPPRESSION_PAGE)
                 .replace("__JETON__", _json_dans_un_script(jeton_session()))
                 .replace("__DATE__", _html.escape(_date_lisible(prevue))))
         return Response(avec_style(page), mimetype="text/html")
