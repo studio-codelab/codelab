@@ -2892,3 +2892,22 @@ def test_au_telephone_chaque_taille_de_widget_a_sa_forme():
     assert ".bw-une{min-height:0}" in tel
     assert ".bw-grand .bw-apercu{min-height:280px}" in tel
     assert "min-height:400px" not in tel and "min-height:220px" not in tel
+
+
+def test_un_mot_a_l_admin_garde_sa_zone_de_texte_en_taille_moyen():
+    """Vecu : capture de l'utilisateur -- en taille Moyen sur un grand ecran,
+    la zone de texte d'« Un mot a l'admin ? » tombait a 22 px, une ligne
+    coupee en deux. Titre et sujets partagent une ligne, les boutons (et le
+    choix de l'application) se rangent a droite : la zone garde au moins
+    56 px ; une carte etroite cache le titre a l'oeil, et le texte d'exemple
+    le reprend."""
+    page = _page_panneau("dashboard.html")
+    bloc = page.split("@media (min-width:761px){\n  .bw-moyen.bw-message{")[1].split("\n}\n")[0]
+    assert "container-type:inline-size;display:grid;" in bloc
+    zone = bloc.split(".bw-moyen.bw-message textarea{")[1].split("}")[0]
+    assert "grid-column:1 / 3" in zone and "min-height:56px" in zone
+    assert ".bw-moyen.bw-message .bw-bas{grid-row:2;grid-column:3;" in bloc
+    assert "width:0;min-width:100%" in bloc        # le choix d'application n'elargit pas la colonne
+    etroit = bloc.split("@container (max-width:460px){")[1]
+    assert ".bw-titre{position:absolute;" in etroit
+    assert "placeholder=\"Pour l'admin : une idée, un souci, une demande d'accès.\"" in page
