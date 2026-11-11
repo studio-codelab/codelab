@@ -1007,14 +1007,6 @@ def sur_le_port_des_apps():
                  or sur_le_tunnel_des_apps()))
 
 
-def schema_vu():
-    """http ou https, tel que le navigateur le voit : https par Funnel (le
-    TLS est termine par tailscaled), sinon celui de la connexion."""
-    if par_le_tunnel():
-        return "https"
-    return "https" if request.scheme == "https" else "http"
-
-
 def modele_adresse_application():
     """L'adresse d'une application, « {nom} » a remplacer : la page en fait
     les liens de toutes ses tuiles sans redemander au serveur."""

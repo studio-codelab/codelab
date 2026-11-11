@@ -12367,7 +12367,7 @@ def test_par_funnel_les_adresses_sont_celles_de_la_machine(funnel):
         assert app.origine_applications() == "https://%s:8443" % HOTE
         assert app.modele_adresse_application() == "https://%s:8443/{nom}/" % HOTE
         assert app.cadres_permis() == "https://%s:8443" % HOTE
-        assert app.schema_vu() == "https" and app.https_actif()
+        assert app.https_actif()
         assert app.lien_panneau() == "/"
     with app.flask_app.test_request_context("/public/", headers=entetes, **_par_funnel("apps")):
         assert app.sur_le_port_des_apps()
