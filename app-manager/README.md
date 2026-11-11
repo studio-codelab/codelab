@@ -91,7 +91,9 @@ Le panneau ne crée jamais de projet : il **déclare** un dossier existant de `/
     et `X-CodeLab-Authenticated`.
 - **Visibilité** : une application privée exige une session autorisée pour elle. Sans session, la
   personne passe par `/login?suite=/ouvrir.app/<nom>/<chemin>` . Une application ne peut devenir
-  publique que si une adresse publique est déclarée.
+  publique que si une adresse publique est déclarée. `locale` (« Réseau local ») : publique pour
+  une requête du réseau local (`client_est_local`), privée sinon, Funnel compris
+  (`ouverte_sans_compte`).
 - **Connexions** : le proxy garde ses connexions vers chaque application (au plus une par fil, 4 s
   d'inactivité). `GET` et `HEAD` se rejouent une fois si l'application avait fermé la connexion ;
   les autres méthodes partent toujours sur une connexion neuve et ne sont jamais rejouées.

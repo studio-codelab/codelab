@@ -299,7 +299,9 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 11. Dagster et Mailpit ne s'ouvrent qu'à une session d'administration.
 12. Une application privée ne s'ouvre qu'à un compte autorisé. Les applications par défaut sont
     réservées à l'administrateur, et ce droit ne peut être accordé à aucun compte (fiche, invitation
-    ou droit ancien : il est ignoré).
+    ou droit ancien : il est ignoré). Un droit ne survit pas à son application : la supprimer (ou
+    effacer la configuration d'une archive) la retire des projets de chaque compte, et une
+    application recréée sous le même nom reste fermée.
 12 bis. Un compte utilisateur ne reçoit ni l'état des applications ni le détail des erreurs
     techniques ; une application qui ne s'ouvre pas lui montre une page neutre. Les widgets
     d'administration ne se posent que pour l'administrateur, contrôlé côté serveur.
@@ -317,6 +319,11 @@ Sans lui, les réglages chiffrés deviennent illisibles.
     `9011` ou `9012` n'est jamais locale, quels que soient ses en-têtes. Ces ports n'écoutent que
     sur `127.0.0.1`. `X-Forwarded-For`, que tailscaled remplace par l'adresse du visiteur, n'y est
     cru que pour la limite des essais, et nulle part ailleurs.
+12 quinquies. Une application « Réseau local » ne s'ouvre sans compte qu'à une requête du réseau
+    local (`client_est_local`) : par Funnel, derrière un proxy non déclaré ou depuis une adresse
+    publique, elle est privée (règle 12). Aucun en-tête ne fait d'une requête d'internet une
+    requête locale. « Publique » reste refusée tant que le serveur n'a pas d'adresse publique, par
+    le bouton comme par le formulaire de configuration.
 13. Toute route qui modifie quelque chose exige le jeton anti-falsification de la session, sauf les
     routes de connexion et d'invitation (Face ID compris), et celle du tournage, qui n'a pas de session et se prouve
     par la clé en en-tête (12 ter).

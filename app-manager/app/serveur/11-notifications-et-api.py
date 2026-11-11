@@ -575,11 +575,12 @@ def api_add():
     build_command = (d.get("build_command") or "").strip()
     max_memory_mb = d.get("max_memory_mb") or None
     vis = d.get("visibility") if d.get("visibility") in VISIBILITES else VISIBILITE_PUBLIQUE
-    # Sans adresse publique declaree, une application neuve nait privee --
-    # y compris si le formulaire demande autre chose. C'est le defaut sur
-    # lequel on ne peut pas se tromper : elle s'ouvre en une bascule, alors
-    # qu'une application ouverte par megarde ne se referme qu'apres coup.
-    if not adresse_publique():
+    # Sans adresse publique declaree, une application neuve ne nait pas
+    # publique -- y compris si le formulaire le demande : privee par defaut,
+    # ou « locale » si c'est le choix. C'est le defaut sur lequel on ne peut
+    # pas se tromper : elle s'ouvre en une bascule, alors qu'une application
+    # ouverte par megarde ne se referme qu'apres coup.
+    if not adresse_publique() and vis == VISIBILITE_PUBLIQUE:
         vis = VISIBILITE_PRIVEE
     if est_categorie_codelab(d.get("categorie")):
         return jsonify({"error": f"« {CATEGORIE_CODELAB} » est réservée aux applications de CodeLab."}), 400
@@ -685,6 +686,11 @@ def api_edit(n):
     apps[n]["description"] = description_propre(d.get("description"))
     apps[n]["categorie"] = categorie_valide(d.get("categorie"))
     if d.get("visibility") in VISIBILITES:
+        # La meme regle que le bouton de la fiche (refus_visibilite) : le
+        # formulaire n'est pas un detour pour rendre publique.
+        refus = refus_visibilite(visibilite(apps[n]), d["visibility"])
+        if refus:
+            return jsonify({"error": refus}), 400
         apps[n]["visibility"] = d["visibility"]
     save(apps)
 
@@ -823,18 +829,14 @@ def api_visibility(n):
     d = request.get_json(force=True, silent=True) or {}
     vis = d.get("visibility")
     if vis not in VISIBILITES:
-        # Sans valeur explicite, on bascule d'un etat a l'autre.
-        vis = (VISIBILITE_PRIVEE if visibilite(apps[n]) == VISIBILITE_PUBLIQUE
-               else VISIBILITE_PUBLIQUE)
-    # Rendre publique une application sur un serveur que personne ne peut
-    # joindre ne partage rien : cela retire seulement l'authentification.
-    # Une application DEJA publique reste modifiable dans l'autre sens --
-    # on ne bloque jamais le chemin qui referme.
-    if vis == VISIBILITE_PUBLIQUE and not adresse_publique():
-        return jsonify({"error": "Ce serveur n'a encore jamais été ouvert depuis "
-                                 "internet : rendre une application publique ne "
-                                 "ferait que retirer l'authentification. Ouvre le "
-                                 "panneau une fois par ton nom de domaine."}), 400
+        # Sans valeur explicite, on bascule : une application ouverte (publique
+        # ou locale) se referme ; une privee s'ouvre -- au reseau local quand
+        # le serveur n'a pas d'adresse publique.
+        vis = (VISIBILITE_PRIVEE if visibilite(apps[n]) != VISIBILITE_PRIVEE
+               else VISIBILITE_PUBLIQUE if adresse_publique() else VISIBILITE_LOCALE)
+    refus = refus_visibilite(visibilite(apps[n]), vis)
+    if refus:
+        return jsonify({"error": refus}), 400
     apps[n]["visibility"] = vis
     save(apps)
     return jsonify({"ok": True, "visibility": vis})
@@ -912,14 +914,42 @@ def api_delete(n):
     return jsonify({"ok": True})
 
 
+# UN DROIT NE SURVIT PAS A L'APPLICATION QU'IL OUVRE.
+# POURQUOI : les droits d'un compte sont une liste de NOMS d'application. Une
+#   application supprimee laissait son nom dans ces listes ; une application
+#   creee plus tard sous le meme nom (le nom est rendu, « Outil » -> /outil/)
+#   s'ouvrait aussitot a ces comptes, sans que l'administrateur le leur ait
+#   donne. Vecu : audit de l'espace d'administration (« les droits sont bien
+#   proteges ») -- Marie voyait dans son hub une application toute neuve.
+# REGLE : 12 de SECURITE.md (une application privee ne s'ouvre qu'a un
+#   compte autorise).
+# DEPEND DE / PROTEGE AUSSI : supprimer_application (suppression a la main)
+#   et effacer_la_configuration (archive trop ancienne) ; le renommage, lui,
+#   deplace le droit (_renommer_references).
+# ECARTE : verifier a l'ouverture que le droit est plus recent que
+#   l'application -- il faudrait dater chaque droit, et un oubli ailleurs
+#   rouvrirait la faille ; retirer le nom a la source suffit.
+def retirer_des_projets(n):
+    """Retire l'application n des projets autorises de chaque compte."""
+    comptes = lire_utilisateurs()
+    touche = False
+    for compte in comptes.values():
+        if n in (compte.get("projets") or []):
+            compte["projets"] = [p for p in compte["projets"] if p != n]
+            touche = True
+    if touche:
+        ecrire_utilisateurs(comptes)
+
+
 def supprimer_application(n):
-    """Arrete l'application et efface sa declaration : la fiche, et les
-    destinataires de ses alertes. Le code, dans /workspace, n'est jamais
+    """Arrete l'application et efface sa declaration : la fiche, les droits
+    des comptes qui l'ouvraient, et les destinataires de ses alertes. Le code, dans /workspace, n'est jamais
     touche (le panneau n'ecrit pas dans /workspace)."""
     stop(n)
     apps = load()
     apps.pop(n, None)
     save(apps)
+    retirer_des_projets(n)
     par_app = reglage("alertes_par_app", {}) or {}
     if par_app.pop(n, None) is not None:
         try:
@@ -1038,14 +1068,7 @@ def effacer_la_configuration(n):
     a["enabled"] = False
     a["configuration_effacee_le"] = int(time.time())
     save(apps)
-    comptes = lire_utilisateurs()
-    touche = False
-    for compte in comptes.values():
-        if n in (compte.get("projets") or []):
-            compte["projets"] = [p for p in compte["projets"] if p != n]
-            touche = True
-    if touche:
-        ecrire_utilisateurs(comptes)
+    retirer_des_projets(n)
     par_app = reglage("alertes_par_app", {}) or {}
     if par_app.pop(n, None) is not None:
         ecrire_reglage("alertes_par_app", par_app or None)

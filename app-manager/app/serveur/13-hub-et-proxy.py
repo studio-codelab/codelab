@@ -1135,7 +1135,9 @@ def _proxy(name, sub):
     if request.method == "GET" and TOURNAGE_PARAMETRE in request.args:
         return echanger_le_ticket(name, sub)
     tournage = not is_authed() and tournage_en_cours(name)
-    if visibilite(a) == VISIBILITE_PRIVEE and not tournage:
+    # « locale » : ouverte sans compte au reseau local seulement
+    # (ouverte_sans_compte, 09-applications).
+    if not ouverte_sans_compte(a) and not tournage:
         if not is_authed():
             # La connexion vit sur l'origine du PANNEAU : un "/login" relatif
             # tombait, sur le port des applications, sur « Ce n'est pas le

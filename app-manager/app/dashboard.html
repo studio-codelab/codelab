@@ -385,6 +385,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .pill.warn{color:var(--warn);background:var(--warn-bg)}
 .pill.pub{color:var(--warn);background:var(--warn-bg)}
 .pill.priv{color:var(--dim);background:var(--surface2)}
+.pill.loc{color:var(--accent);background:var(--accent-soft)}
 
 /* ------------------------------ boutons ------------------------------ */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
@@ -449,6 +450,33 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
  background:var(--surface);color:var(--dim);cursor:pointer;display:grid;place-items:center}
 .icon-btn:hover{color:var(--accent);border-color:var(--accent)}
 .icon-btn svg{width:15px;height:15px}
+/* LA FINITION DES BOUTONS. Vecu : « Je veux que le rendu soit premium, des
+   boutons de qualite ». Un bouton plat qui ne bouge pas sous le doigt
+   semble ne pas avoir pris le clic. Trois choses le font sentir solide :
+   - une hauteur reguliere (36 px a la souris, 44 px au doigt : la cible
+     tactile recommandee par Apple et Google), pour que deux boutons voisins
+     ne soient jamais de tailles differentes ;
+   - un relief discret : une ombre courte sous les boutons a contour, et
+     sous un bouton plein un liseré clair en haut et un halo de sa couleur ;
+   - un enfoncement a l'appui (:active), qui repond avant meme la requete.
+   ESSAYE ET ECARTE : un degrade sur le bouton principal -- il change de
+   teinte avec le nuancier et jurait sur certaines couleurs ; le halo en
+   color-mix suit la couleur choisie, et un navigateur sans color-mix garde
+   l'ombre seule. */
+.btn,.icon-btn{transition:background .15s,border-color .15s,color .15s,box-shadow .15s,transform .08s;
+ -webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.btn{min-height:36px;font-weight:600}
+.btn-sm{min-height:30px}
+.btn-default,.btn-refaire,.btn-arreter,.btn-ouvrir,.btn-danger-quiet,.icon-btn{box-shadow:0 1px 2px var(--shadow)}
+.btn-primary,.btn-demarrer{box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 1px 2px var(--shadow-2)}
+.btn-primary{box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 1px 2px var(--shadow-2),
+ 0 6px 16px -6px color-mix(in srgb,var(--accent) 60%,transparent)}
+.btn:not(:disabled):active,.icon-btn:not(:disabled):active{transform:scale(.97)}
+.btn:disabled,.icon-btn:disabled{box-shadow:none}
+@media (pointer:coarse){
+  .btn{min-height:44px}
+  .btn-sm{min-height:36px}
+}
 
 /* ------------------------------ champs ------------------------------ */
 .field{margin-bottom:15px}
@@ -569,6 +597,7 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 
 .seg-toggle{display:flex;border:1px solid var(--line2);border-radius:var(--r-s);overflow:hidden;
  max-width:340px}
+.seg-toggle button[hidden]{display:none}
 .seg-toggle button{flex:1;padding:8px 6px;border:none;background:var(--surface2);color:var(--dim);
  font:inherit;font-size:12.5px;font-weight:550;cursor:pointer}
 .seg-toggle button+button{border-left:1px solid var(--line2)}
@@ -1732,8 +1761,11 @@ input,select,textarea{border-radius:12px}
 .hub-icone.warn img{box-shadow:0 0 0 3px var(--bg),0 0 0 6px var(--warn)}
 .hub-icone.err img{box-shadow:0 0 0 3px var(--bg),0 0 0 6px var(--err)}
 .hub-icone.off img{opacity:.55;filter:grayscale(.5)}
+/* Un nom long se coupe avec un trait d'union plutot que de laisser le point
+   « nouveau » seul sur la premiere ligne (« Comptabilit... » au telephone). */
 .hub-icone-nom{max-width:100%;font-size:13px;font-weight:700;line-height:1.25;text-align:center;
- display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+ display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+ overflow-wrap:anywhere;hyphens:auto}
 .hub-icone.maj .hub-icone-nom::before{content:"";display:inline-block;width:7px;height:7px;margin-right:5px;
  border-radius:999px;background:var(--accent);vertical-align:1px}
 .hub-icone .hub-pastille{top:-6px;right:calc(50% - 52px)}
@@ -1861,9 +1893,21 @@ input,select,textarea{border-radius:12px}
 .bw-une-icone{position:absolute;inset:0;margin:auto;width:96px;height:96px;border-radius:26px;opacity:.9}
 .bw-une-pied{display:flex;flex-direction:column;gap:8px;padding:16px 20px 20px;color:inherit;text-decoration:none}
 .bw-une :is(.bw-sur,.bw-titre,.bw-vide){color:inherit;opacity:.8}
-.bw-une-ligne{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.bw-une-ligne{display:flex;align-items:center;gap:12px;flex-wrap:wrap;min-width:0}
+.bw-une-ligne img{flex:none}
 .bw-une-ligne img{width:40px;height:40px;border-radius:12px}
-.bw-une-nom{font-size:clamp(24px,2.4vw,34px);font-weight:800;letter-spacing:-.04em;line-height:1}
+/* LE NOM A LA UNE : deux lignes au plus, coupees entre les mots, et une
+   hauteur de ligne qui garde les jambages (a 1, le « p » et le « g » etaient
+   rognes). Vecu : « Le texte s'affiche parfois mal, notamment dans les
+   widgets » -- au telephone, « Atlas des randonnees alpines » passait sous
+   la petite icone en 34 px et debordait de la carte. */
+.bw-une-nom{flex:1 1 0;min-width:0;font-size:clamp(24px,2.4vw,34px);font-weight:800;letter-spacing:-.04em;
+ line-height:1.15;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+ overflow:hidden;padding-bottom:.06em}
+/* La petite icone redit la grande quand l'apercu montre deja l'icone (pas
+   de direct) : de la couleur du bandeau, on n'en voyait plus que la lettre,
+   seule sous « A LA UNE ». Elle ne reste qu'a cote d'un apercu en direct. */
+.bw-apercu.sans-direct + .bw-une-pied .bw-une-ligne img{display:none}
 .bw-une .bento-bouton{margin-top:4px}
 .bw-une .badge-maj{background:var(--surface);color:var(--txt)}
 /* La bande-annonce remplit l'apercu ; l'icone attend dessous qu'elle charge. */
@@ -1878,6 +1922,44 @@ input,select,textarea{border-radius:12px}
 .bw-message textarea{flex:1;min-height:0;resize:none;padding:10px 12px;
  border:1px solid var(--line2);background:var(--bg-input,var(--surface2));font:inherit}
 .bw-sujets{display:flex;flex-wrap:wrap;gap:6px}
+/* « UN MOT A L'ADMIN ? » EN TAILLE MOYEN, SUR GRAND ECRAN. Vecu : capture
+   de l'utilisateur, la zone de texte reduite a une ligne coupee en deux.
+   La case d'un widget Moyen y fait 157 a 197 px de haut ; titre, sujets,
+   zone de texte et boutons empiles en demandaient 185 sans texte : la zone
+   (flex:1) tombait a 22 px, et le reste debordait. Le titre et les sujets
+   partagent maintenant une ligne, le trombone et « Envoyer » se rangent a
+   droite de la zone : elle garde trois lignes (environ 80 px).
+   Au telephone, la carte grandit avec son contenu : la pile reste.
+   Une carte etroite (tablette, ordinateur de 1024 px : moins de 460 px de
+   contenu) n'a pas la place du titre a cote des sujets : il ne reste que
+   pour les lecteurs d'ecran, et le texte d'exemple dit « Pour l'admin ».
+   ESSAYE ET ECARTE : retirer la taille Moyen de ce widget -- une
+   disposition deja rangee en Moyen n'aurait plus eu de taille valide ; les
+   sujets sur deux lignes ou en bande qui defile -- la zone de texte
+   retombait a deux lignes, ou « Une application » sortait de la carte. */
+@media (min-width:761px){
+  .bw-moyen.bw-message{container-type:inline-size;display:grid;grid-template-columns:auto minmax(0,1fr) auto;
+   grid-template-rows:auto minmax(0,1fr);column-gap:12px;row-gap:0;align-items:center}
+  .bw-moyen.bw-message .bw-titre{grid-row:1;grid-column:1;margin-bottom:10px}
+  .bw-moyen.bw-message .bw-sujets{grid-row:1;grid-column:2 / -1;justify-content:flex-end;margin-bottom:10px}
+  /* Le choix de l'application se range au-dessus des boutons, dans leur
+     colonne : sur sa propre ligne, il reprenait la hauteur de la zone.
+     width:0 + min-width:100% : il prend la largeur des boutons sans
+     l'imposer (un long nom d'application elargissait la colonne). */
+  /* :is(select,.dl) : le select natif, ou la liste deroulante du panneau
+     qui l'enveloppe (.dl, le select y devient transparent). */
+  .bw-moyen.bw-message :is(.bw-sujets ~ select,.bw-sujets ~ .dl){grid-row:2;grid-column:3;align-self:start;
+   width:0;min-width:100%}
+  .bw-moyen.bw-message .dl-btn{height:34px;min-height:34px;padding-top:0;padding-bottom:0;font-size:12.5px}
+  .bw-moyen.bw-message textarea{grid-row:2;grid-column:1 / 3;align-self:stretch;min-height:56px}
+  .bw-moyen.bw-message .bw-bas{grid-row:2;grid-column:3;align-self:end;max-width:260px}
+  .bw-moyen.bw-message .bw-bas .btn-primary{flex:none;padding:0 18px}
+  @container (max-width:460px){
+    .bw-moyen.bw-message .bw-titre{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);
+     white-space:nowrap;margin:0}
+    .bw-moyen.bw-message .bw-sujets{grid-column:1 / -1;justify-content:flex-start}
+  }
+}
 /* ---- pieces jointes : captures et maquettes ---- */
 .pj-liste{display:flex;flex-wrap:wrap;gap:8px}
 .pj-liste:empty{display:none}
@@ -2214,15 +2296,29 @@ a.pj:hover{border-color:var(--accent)}
   :root[data-tuiles="icones"] .hub-icone-nom{font-size:12px}
   :root[data-tuiles="icones"] .hub-icone .hub-pastille{right:calc(50% - 40px)}
   :root[data-tuiles="icones"] .hub-icone .ed-retirer{left:calc(50% - 42px)}
-  :root[data-tuiles="icones"] .bw-petit{grid-column:span 2;grid-row:span 2;min-height:160px}
-  :root[data-tuiles="icones"] .bw-moyen{grid-column:span 4;grid-row:span 2;min-height:200px}
-  :root[data-tuiles="icones"] .bw-grand{grid-column:span 4;grid-row:span 4;min-height:360px}
+  /* LA TAILLE DES WIDGETS AU TELEPHONE. Vecu : « Gere la taille des
+     widgets sur telephone ». Moyen et Grand prenaient la meme place (toute
+     la largeur, 220 px), et un widget presque vide -- « Rien de nouveau » --
+     laissait un grand blanc. Chaque taille a maintenant sa forme, la meme
+     en cartes et en icones :
+       Petit : une demi-largeur, a peu pres carree ;
+       Moyen : toute la largeur, une bande basse ;
+       Grand : toute la largeur, deux fois plus haute.
+     La hauteur est un minimum : un widget plus rempli grandit (rangees
+     auto), aucun texte n'est coupe pour tenir. */
   .bw-petit{grid-column:span 1;grid-row:auto;min-height:150px}
-  .bw-moyen,.bw-grand{grid-column:span 2;grid-row:auto;min-height:220px}
-  .bw-une{min-height:400px}
+  .bw-moyen,.bw-grand{grid-column:span 2;grid-row:auto}
+  .bw-moyen{min-height:150px}
+  .bw-grand{min-height:300px}
+  :root[data-tuiles="icones"] .bw-petit{grid-column:span 2;grid-row:auto;min-height:150px}
+  :root[data-tuiles="icones"] .bw-moyen{grid-column:span 4;grid-row:auto;min-height:150px}
+  :root[data-tuiles="icones"] .bw-grand{grid-column:span 4;grid-row:auto;min-height:300px}
+  /* « A la une » : l'apercu fait la difference entre les deux tailles. */
+  .bw-une{min-height:0}
   .bw-moyen.bw-une{flex-direction:column}
   .bw-moyen.bw-une .bw-apercu{border-radius:24px 24px 0 0}
-  .bw-apercu{min-height:230px}
+  .bw-apercu{min-height:170px}
+  .bw-grand .bw-apercu{min-height:280px}
   .hub-barre{width:100%;margin-left:0}
   .hub-recherche{flex:1;width:auto;margin:0}
   .bento-vide{grid-column:span 2;min-height:90px}
@@ -2231,6 +2327,34 @@ a.pj:hover{border-color:var(--accent)}
   .gl-titre{width:100%}
   .gl-item{width:auto}
   .bento-chiffre{font-size:64px}
+  /* LE TEXTE AU TELEPHONE. Vecu : « Ameliore completement le rendu sur
+     telephone. Le texte s'affiche parfois mal, notamment dans les
+     widgets ». Une tuile y fait 170 px de large : 13 lettres par ligne au
+     corps de l'ordinateur. Le nom prend trois lignes et un corps plus
+     petit, se coupe en fin de mot ou, a defaut, dans le mot (un nom sans
+     espace ne sort plus de la carte). La hauteur de ligne reste celle de
+     .bento-carte-nom (jambages, voir plus haut). */
+  .bw-une-nom{font-size:26px}
+  .bento-carte{padding:16px}
+  .bento-carte-nom{font-size:17px;-webkit-line-clamp:3;overflow-wrap:anywhere;hyphens:auto}
+  .bento-carte-nom.long{font-size:15px}
+  .bento-carte-nom.tres-long{font-size:13.5px;-webkit-line-clamp:4}
+  .bento-carte-desc{font-size:12px}
+  /* Les onglets d'une fiche d'application : une rangee qui defile au
+     doigt, sans barre, plutot qu'un « Acces » coupe au bord et des onglets
+     hors de l'ecran. Les parametres ont leurs propres onglets (pilules). */
+  #fiche-onglets{overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch;
+   overscroll-behavior-x:contain}
+  #fiche-onglets::-webkit-scrollbar{display:none}
+  #fiche-onglets button{flex:none;white-space:nowrap}
+  /* Les barres de la vue d'ensemble : le nom sur sa ligne, la barre et la
+     valeur dessous. Dans 130 px, « Atlas des randonnees... » perdait la
+     moitie de son nom. */
+  .bar-row{grid-template-columns:minmax(0,1fr) auto;row-gap:4px}
+  .bar-name{grid-column:1 / -1}
+  /* Un compte : l'adresse se coupe plutot que de cacher « verifie » ou
+     « jamais connecte ». */
+  .us-meta{white-space:normal;overflow-wrap:anywhere}
 }
 </style></head><body>
 <div id="defile">
@@ -2455,7 +2579,7 @@ a.pj:hover{border-color:var(--accent)}
     <div class="ap-puces" id="ap-etats" role="group" aria-label="Filtrer par état"></div>
     <select class="ap-choix" id="ap-vis" aria-label="Filtrer par visibilité" onchange="apFiltrer()">
       <option value="">Toutes visibilités</option><option value="privee">Privées</option>
-      <option value="publique">Publiques</option></select>
+      <option value="locale">Réseau local</option><option value="publique">Publiques</option></select>
     <select class="ap-choix" id="ap-cat" aria-label="Filtrer par catégorie" onchange="apFiltrer()"></select>
     <select class="ap-choix" id="ap-tri" aria-label="Trier par" onchange="apTrier(this.value)">
       <option value="nom">Trier par nom</option><option value="etat">Trier par état</option>
@@ -2729,12 +2853,14 @@ a.pj:hover{border-color:var(--accent)}
         <div class="fset-title">Visibilité</div>
         <div class="field">
           <div class="seg-toggle" id="e-vis-toggle">
-            <button data-v="publique" onclick="setVisEdit('publique')">Publique</button>
             <button data-v="privee" onclick="setVisEdit('privee')">Privée</button>
+            <button data-v="locale" onclick="setVisEdit('locale')">Réseau local</button>
+            <button data-v="publique" onclick="setVisEdit('publique')">Publique</button>
           </div>
-          <div class="hint">Publique : ouverte à tous ; une personne connectée à CodeLab y est
-            reconnue automatiquement. Privée : réservée aux comptes CodeLab autorisés, la connexion
-            est demandée avant d'entrer.</div>
+          <div class="hint">Privée : réservée aux comptes CodeLab autorisés, la connexion est
+            demandée avant d'entrer. Réseau local : ouverte sans connexion chez toi, privée depuis
+            internet. Publique : ouverte à tous, internet compris. Une personne connectée à CodeLab
+            y est toujours reconnue automatiquement.</div>
         </div>
       </div>
 
@@ -3820,8 +3946,9 @@ a.pj:hover{border-color:var(--accent)}
       <div class="hint">Les catégories se créent dans Configuration.</div></div>
     <div class="field" id="f-vis-zone"><label>Visibilité</label>
       <div class="seg-toggle" id="f-vis-toggle">
-        <button data-v="publique" onclick="setVisAdd('publique')">Publique</button>
         <button data-v="privee" onclick="setVisAdd('privee')">Privée</button>
+        <button data-v="locale" onclick="setVisAdd('locale')">Réseau local</button>
+        <button data-v="publique" onclick="setVisAdd('publique')">Publique</button>
       </div></div>
   </div>
   <div class="mf"><button class="btn btn-default" onclick="hide('ov-add')">Annuler</button>

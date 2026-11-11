@@ -355,7 +355,7 @@ function widgetMessage(taille){
         `<option value="${esc(a.name)}" ${a.name===hubMessageApp?'selected':''}>${esc(nomAffiche(a))}</option>`).join('')}</select>` : ''}
     <label class="sr" for="bw-message-texte">Ton message</label>
     <textarea id="bw-message-texte" data-garder="message" data-pieces="widget" maxlength="2000"
-      placeholder="Une idée, un souci, une demande d'accès."
+      placeholder="Pour l'admin : une idée, un souci, une demande d'accès."
       oninput="hubMessageBrouillon=this.value">${esc(hubMessageBrouillon)}</textarea>
     <div class="bw-bas">
       <label class="joindre" title="Joindre une image ou un PDF"><span class="sr">Joindre une image ou un PDF</span>

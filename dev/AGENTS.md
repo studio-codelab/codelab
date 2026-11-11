@@ -275,6 +275,13 @@ chaque requete, dans cet ordre :
    `codelab_sub`) ou le cree, sans formulaire ;
 3. sinon : le formulaire de l'application, pour les visiteurs sans CodeLab.
 
+**Obligatoire des que l'application a ses propres comptes** (un ecran de
+connexion, une table d'utilisateurs). C'est aussi ce qui fait entrer le
+laissez-passer de tournage (section 14) : sans connexion silencieuse,
+`codelab video` trouve un champ mot de passe et s'arrete avant de filmer. Ne
+contourne jamais cela en ecrivant un identifiant ou un mot de passe dans le
+scenario, un fichier du projet ou une variable d'environnement.
+
 L'identite contient `sub`, `nom`, `role` (`admin` ou `utilisateur`), `email` et
 `email_verified`.
 
@@ -655,7 +662,9 @@ export default {
   l'administrateur par « Se connecter avec CodeLab » (`codelab_auth`, avec
   `"tournage": true` dans l'identite). AUCUNE etape de connexion dans le
   scenario, aucun mot de passe : l'application doit simplement accepter la
-  connexion CodeLab (section 9).
+  connexion CodeLab (section 9). Si la premiere page montre encore un champ
+  mot de passe, `codelab video` s'arrete avant de filmer et le dit : branche
+  `codelab_auth`, puis relance.
 - **Une adresse locale** (`http://127.0.0.1:8000/`, application lancee dans
   un AUTRE terminal et laissee tournant) ne recoit pas d'identite : a
   reserver aux applications publiques. `codelab video` lit `localhost` comme
@@ -690,6 +699,9 @@ chaque point, et dis lesquels tu n'as pas pu verifier.
       (`npm ci`, `pip install --target vendor`)
 - [ ] Icone `icon.png` carree a la racine ; description d'une ligne prete
 - [ ] Ni `X-Frame-Options` ni `frame-ancestors` poses par l'application
+- [ ] Si l'application a ses propres comptes : `codelab_auth` branche
+      (section 9). Ouverte par le hub, elle entre sans formulaire -- sinon
+      `codelab video` s'arrete avant de filmer
 
 **Rendu**
 - [ ] Affichage correct a 375 px, 768 px, 1024 px et 1280 px de large, en mode
