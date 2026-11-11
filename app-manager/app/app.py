@@ -3,10 +3,11 @@ CodeLab -- LE PANNEAU : authentification, hub, applications, proxy, mails.
 ---------------------------------------------------------------------------
 ROLE        Un seul service Flask, servi par waitress (voir « serveur HTTP ») :
               :9001  le panneau, son API, /login, /health (sonde Docker) ;
-              :9002  toutes les applications, sous /<nom>/ (ou <nom>.<domaine>
-                     derriere un VPS), sur une ORIGINE A PART
-                     (APP_MANAGER_APPS_PORT ; 0, ou un port qui ne s'ouvre
-                     pas, les remet sur 9001).
+              :9002  toutes les applications, sous /<nom>/, sur une ORIGINE
+                     A PART (APP_MANAGER_APPS_PORT ; 0, ou un port qui ne
+                     s'ouvre pas, les remet sur 9001) ;
+              Tailscale Funnel : 443 (panneau) et 8443 (applications),
+                     sur 127.0.0.1:9011 et 9012 (voir 14-tunnel).
             Il authentifie (mot de passe, second facteur, cles d'acces),
             declare, construit, lance et surveille les applications de
             /workspace, les sert par reverse proxy, envoie mails et

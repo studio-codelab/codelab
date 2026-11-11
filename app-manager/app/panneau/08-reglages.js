@@ -568,9 +568,9 @@ async function chargerSecurite(){
   if(ficheNom) peindreFiche();
 }
 
-/* L'adresse publique du serveur, apprise par le serveur la premiere fois
-   qu'on ouvre le panneau par son nom de domaine. "" = jamais ouvert depuis
-   internet, et « publique » n'y voudrait rien dire. */
+/* L'adresse publique du serveur : celle de Tailscale Funnel quand l'acces
+   depuis internet est allume. "" = Funnel eteint, et « publique » n'y
+   voudrait rien dire. */
 let adressePublique='';
 async function chargerAdressePublique(){
   try{

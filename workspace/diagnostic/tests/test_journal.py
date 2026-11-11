@@ -676,11 +676,15 @@ def test_le_diagnostic_lit_la_base_en_lecture_seule(monkeypatch):
     app.save({"site": {"path": "/w/s", "command": "x", "port": 9101,
                        "visibility": "publique"}})
     app.ecrire_utilisateurs({"marie": {"sel": "a", "hash": "b", "projets": []}})
-    app.ecrire_exposition({"admin_reseau_local": True})
+    app.ecrire_parametre("tunnel", {"actif": True, "annoncee": "https://codelab.tail1234.ts.net"})
     app.journaliser("connexion", qui="marie", ip="203.0.113.9")
     assert checks._apps_panneau()["site"]["visibility"] == "publique"
     assert checks._comptes_panneau() == {"marie": {}}
-    assert checks._exposition_panneau() == {"admin_reseau_local": True}
+    assert checks._adresse_publique_panneau() == "https://codelab.tail1234.ts.net"
+    app.ecrire_parametre("tunnel", {"actif": True, "annoncee": "https://evil.example"})
+    assert checks._adresse_publique_panneau() == ""
+    app.ecrire_parametre("tunnel", {"actif": False, "annoncee": "https://codelab.tail1234.ts.net"})
+    assert checks._adresse_publique_panneau() == ""
     assert checks._ips_du_journal() == ["203.0.113.9"]
     # Lecture seule : une ecriture par cette voie est refusee.
     assert checks._requete_panneau("DELETE FROM applications") is None

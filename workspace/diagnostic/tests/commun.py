@@ -1015,11 +1015,6 @@ def _fichier_du_depot(*morceaux):
 
 
 
-# Vecu : « il faut utiliser le nom de l'app simplement comme sous domaine,
-# celui parametre dans la configuration, comme ca pas la peine de renseigner
-# quoi que ce soit dans APP_MANAGER_APPS_URL ».
-
-_PAR_LE_VPS = {"X-Forwarded-Proto": "https", "X-Forwarded-For": "203.0.113.5"}
 
 
 

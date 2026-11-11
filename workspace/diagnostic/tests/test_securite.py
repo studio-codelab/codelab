@@ -468,11 +468,12 @@ def test_un_droit_sur_un_projet_inexistant_n_est_pas_enregistre(deux_espaces):
 
 
 
-# ---------- l'administration ne passe pas par le VPS ----------
+# ---------- l'administration ne passe pas par un intermediaire ----------
 
 def test_l_administration_ne_passe_pas_par_le_proxy(tmp_path, monkeypatch):
     """L'administration ne repond qu'en connexion directe depuis le reseau
-    local : une requete relayee (X-Forwarded-*) est refusee, VPS compris."""
+    local : une requete relayee (X-Forwarded-*) est refusee, quel que soit
+    l'intermediaire."""
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
     app.flask_app.secret_key = "cle-de-test"
     app.flask_app.config["TESTING"] = True
@@ -593,13 +594,13 @@ def test_une_application_neuve_nait_privee_sur_un_serveur_prive(exposition):
 
 
 
-def test_une_fois_l_adresse_connue_le_partage_redevient_possible(exposition):
-    """Plus de champ a remplir : l'adresse vient du domaine par lequel le
-    panneau a ete ouvert depuis internet (ou du compose)."""
+def test_une_fois_l_adresse_connue_le_partage_redevient_possible(exposition, monkeypatch):
+    """Plus de champ a remplir : l'adresse publique est celle de Tailscale
+    Funnel, des que l'acces depuis internet est allume."""
     c = exposition
-    app.ecrire_exposition({"adresse_publique": "https://codelab.example.com"})
-    assert app.adresse_publique() == "https://codelab.example.com"
-    assert c.get("/api/securite").get_json()["adresse_publique"] == "https://codelab.example.com"
+    monkeypatch.setattr(app, "adresse_funnel", lambda: "https://codelab.tail1234.ts.net")
+    assert app.adresse_publique() == "https://codelab.tail1234.ts.net"
+    assert c.get("/api/securite").get_json()["adresse_publique"] == "https://codelab.tail1234.ts.net"
     assert c.post("/api/visibility/prive", json={"visibility": "publique"}).status_code == 200
     # La route qui la faisait saisir n'existe plus.
     assert c.put("/api/securite/exposition",
@@ -623,9 +624,10 @@ def test_une_fois_l_adresse_connue_le_partage_redevient_possible(exposition):
 
 def test_le_cookie_est_securise_des_que_la_connexion_l_est():
     """Plus de case « Servi en HTTPS » : le cookie devient Secure, et HSTS
-    part, des que la requete arrive en https -- directement ou annoncee par
-    un proxy. En clair, rien de tel (le navigateur ne renverrait plus le
-    cookie)."""
+    part, des que la requete arrive en https -- directement ou par Tailscale
+    Funnel (reconnu a son port). En clair, rien de tel (le navigateur ne
+    renverrait plus le cookie), meme si un client annonce X-Forwarded-Proto :
+    plus aucun intermediaire legitime ne le pose depuis le retrait du VPS."""
     app.flask_app.secret_key = "cle-de-test"
     app._login_attempts.clear()
     with app.flask_app.test_request_context("/", base_url="http://localhost"):
@@ -633,7 +635,7 @@ def test_le_cookie_est_securise_des_que_la_connexion_l_est():
     with app.flask_app.test_request_context("/", base_url="https://localhost"):
         assert app.https_actif() is True
     with app.flask_app.test_request_context("/", headers={"X-Forwarded-Proto": "https"}):
-        assert app.https_actif() is True
+        assert app.https_actif() is False
     assert isinstance(app.flask_app.session_interface, app.SessionSelonLaConnexion)
     c = app.flask_app.test_client()
     r = c.get("/", base_url="https://localhost")
@@ -842,12 +844,6 @@ def test_marteler_le_refus_finit_par_etre_limite(exposition):
 
 
 
-def test_l_adresse_du_compose_l_emporte_sur_celle_de_la_page(exposition, monkeypatch):
-    """Sinon la page laisserait modifier ce qu'un redemarrage remettrait."""
-    c = exposition
-    monkeypatch.setenv("APP_MANAGER_PUBLIC_URL", "https://depuis-le-compose.example/")
-    assert app.adresse_publique() == "https://depuis-le-compose.example"
-    assert c.get("/api/securite").get_json()["adresse_publique"] == "https://depuis-le-compose.example"
 
 
 
@@ -3241,16 +3237,18 @@ def _cookie_pose(reponse, nom):
     return next((v for v in reponse.headers.getlist("Set-Cookie") if v.startswith(nom + "=")), "")
 
 
-def test_le_cookie_de_tournage_est_secure_derriere_un_proxy_https(tournage):
+def test_le_cookie_de_tournage_est_secure_en_https(tournage, monkeypatch):
     """Audit du 2026-11-11, R4 : le cookie suivait request.is_secure, que le
-    TLS termine par un VPS ne rend pas vrai. Il suit maintenant la regle de
-    la session (https_actif) : Secure des que le proxy annonce le https, et
-    seulement alors."""
+    TLS termine par tailscaled (Funnel) ne rend pas vrai. Il suit maintenant
+    la regle de la session (https_actif) : Secure en https, et seulement
+    alors."""
     c, _vus = tournage
     ticket = _ticket(c).get_json()["ticket"]
-    r = c.get(f"/prive-refuse/?codelab-tournage={ticket}", headers={"X-Forwarded-Proto": "https"})
+    monkeypatch.setattr(app, "par_le_tunnel", lambda: True)
+    r = c.get(f"/prive-refuse/?codelab-tournage={ticket}")
     assert r.status_code == 302
     assert "; Secure" in _cookie_pose(r, app.TOURNAGE_COOKIE)
+    monkeypatch.setattr(app, "par_le_tunnel", lambda: False)
     ticket = _ticket(c).get_json()["ticket"]
     r = c.get(f"/prive-refuse/?codelab-tournage={ticket}")
     assert r.status_code == 302
@@ -3258,21 +3256,22 @@ def test_le_cookie_de_tournage_est_secure_derriere_un_proxy_https(tournage):
     assert pose and "Secure" not in pose, "en clair, le navigateur ne le renverrait plus"
 
 
-def test_le_cookie_d_appareil_est_secure_comme_la_session(appareils):
+def test_le_cookie_d_appareil_est_secure_comme_la_session(appareils, monkeypatch):
     """Audit du 2026-11-11, R4 : le cookie d'appareil suivait
-    SESSION_COOKIE_SECURE, fixe au demarrage par APP_MANAGER_HTTPS seul.
-    Derriere un VPS, la session devenait Secure, pas lui."""
-    relaye = app.flask_app.test_client()
-    relaye.environ_base["HTTP_X_FORWARDED_PROTO"] = "https"
-    _connecte(relaye, "marie", "mot-de-passe-long")
-    assert relaye.get("/api/mes-apps").status_code == 200
-    assert relaye.get_cookie(app.COOKIE_APPAREIL).secure
-    assert relaye.get_cookie(app.flask_app.config.get("SESSION_COOKIE_NAME") or "session").secure
+    SESSION_COOKIE_SECURE, fixe au demarrage par APP_MANAGER_HTTPS seul. En
+    https (par Funnel), la session devenait Secure, pas lui."""
+    monkeypatch.setattr(app, "https_actif", lambda: True)
+    tls = app.flask_app.test_client()
+    _connecte(tls, "marie", "mot-de-passe-long")
+    assert tls.get("/api/mes-apps").status_code == 200
+    assert tls.get_cookie(app.COOKIE_APPAREIL).secure
+    assert tls.get_cookie(app.flask_app.config.get("SESSION_COOKIE_NAME") or "session").secure
+    monkeypatch.setattr(app, "https_actif", lambda: False)
     direct = _marie_sur(IPHONE)
     assert not direct.get_cookie(app.COOKIE_APPAREIL).secure
     source = _source_du_panneau()
     assert "SESSION_COOKIE_SECURE=" not in source and '"SESSION_COOKIE_SECURE"' not in source, \
-        "un drapeau fixe au demarrage ne voit pas le TLS d'un VPS"
+        "un drapeau fixe au demarrage ne voit pas le TLS de Funnel"
 
 
 def test_le_laissez_passer_refuse_sans_la_cle_et_compte_les_essais(tournage):

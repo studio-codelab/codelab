@@ -531,8 +531,7 @@ services:
       # une faille dans une application d'atteindre le panneau : le navigateur
       # traite deux ports comme deux sites, et refuse a l'un de lire l'autre.
       # Sans ce port publie, le panneau s'en apercoit et continue de servir
-      # les applications lui-meme. Derriere un VPS, c'est aussi ce port qui
-      # sert chaque application sur son sous-domaine (app-manager/vps/).
+      # les applications lui-meme.
       - "9002:9002"
 
     volumes:
@@ -560,16 +559,14 @@ services:
       APP_MANAGER_SHARED_CONFIG: /var/lib/codelab/config
 
       # --- Le jour ou ce panneau sort de ton reseau ---------------------
-      # RIEN A REGLER ICI : ouvert par son nom de domaine (app-manager/vps/),
-      # le panneau retient cette adresse et sert chaque application sur
-      # https://<son-nom>.<domaine>. X-Forwarded-For n'est jamais cru,
+      # RIEN A REGLER ICI : Tailscale Funnel s'allume depuis Parametres >
+      # Securite (panneau en https://<machine>.<reseau>.ts.net, applications
+      # sur le meme nom en :8443). X-Forwarded-For n'est jamais cru,
       # l'administration ne repond qu'au reseau local en connexion directe,
       # et le cookie devient Secure des que la requete arrive en https.
-      # APP_MANAGER_HTTPS=1 peut seulement forcer Secure ;
-      # APP_MANAGER_PUBLIC_URL impose l'adresse publique.
+      # APP_MANAGER_HTTPS=1 peut seulement forcer Secure.
       #
       # APP_MANAGER_HTTPS: "1"
-      # APP_MANAGER_PUBLIC_URL: "https://toi.duckdns.org"
       # Second facteur OBLIGATOIRE pour le compte d'administration. Marche
       # arriere en cas de telephone perdu : decommenter, relancer, se
       # reconnecter, enregistrer un nouveau facteur, puis recommenter.

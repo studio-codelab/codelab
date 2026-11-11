@@ -302,9 +302,8 @@ def _client_ip():
       APP_MANAGER_TRUST_PROXY), retire : la securite la plus stricte n'est
       pas une option.
       Une limite PAR COMPTE en plus de celle-ci (audit du 2026-11-11, R5) :
-      elle ne rend pas la porte aux visiteurs du VPS, et elle laisserait
-      n'importe qui, de n'importe ou, fermer celle d'un compte precis en se
-      trompant cinq fois sur son nom. Le second facteur, obligatoire pour
+      elle laisserait n'importe qui, de n'importe ou, fermer la porte d'un
+      compte precis en se trompant cinq fois sur son nom. Le second facteur, obligatoire pour
       tous les comptes, rend deja inutile la force brute du mot de passe.
     SEULE EXCEPTION, Tailscale Funnel (par_le_tunnel) : la connexion vient
       alors de tailscaled, sur 127.0.0.1, pour TOUS les visiteurs -- un seul
@@ -445,10 +444,9 @@ def origines_separees():
 
 
 def requete_d_application():
-    """Cette requete est-elle pour une application (le proxy, ou un
-    sous-domaine) plutot que pour le panneau ?"""
-    return (request.endpoint in ("proxy", "proxy_noslash")
-            or bool(getattr(g, "sous_domaine", "")))
+    """Cette requete est-elle pour une application (le proxy) plutot que
+    pour le panneau ?"""
+    return request.endpoint in ("proxy", "proxy_noslash")
 
 
 # Un nom d'hote ordinaire, et rien d'autre. Ce qui suit n'est pas de la
@@ -498,14 +496,13 @@ def origine_applications():
     return f"{request.scheme}://{hote}:{APPS_PORT}"
 
 
-# UNE APPLICATION, UN SOUS-DOMAINE. Ouvert par un nom de domaine depuis
-# internet (relaye par le VPS), le panneau sert chaque application sous son
-# propre nom : « blog » sur https://blog.toi.duckdns.org quand le panneau est
-# a https://toi.duckdns.org. Rien a declarer : le nom de l'application EST
-# son adresse. Chaque sous-domaine est une origine a lui, la separation tient
-# comme avec le port. En local -- une adresse IP, un nom sans point ou du
-# reseau domestique --, rien ne change : le port des applications, /<nom>/.
-_SUFFIXES_LOCAUX = (".local", ".lan", ".home", ".internal", ".localhost", ".arpa")
+# UNE ADRESSE PAR APPLICATION : /<nom>/ sur le port des applications (9002 en
+# local, 8443 par Tailscale Funnel). Toutes les applications partagent donc
+# une origine, distincte de celle du panneau (SECURITE.md, « Ce que CodeLab
+# ne protege pas »).
+# ESSAYE ET ECARTE : un sous-domaine par application derriere un VPS (une
+# origine chacune). Retire avec le VPS : l'installation passe par Tailscale
+# Funnel, qui ne donne qu'un nom en .ts.net.
 
 
 def sur_le_port_des_apps():
@@ -515,61 +512,16 @@ def sur_le_port_des_apps():
 
 
 def schema_vu():
-    """http ou https, tel que le navigateur le voit (derriere le VPS, nginx
-    l'annonce dans X-Forwarded-Proto)."""
+    """http ou https, tel que le navigateur le voit : https par Funnel (le
+    TLS est termine par tailscaled), sinon celui de la connexion."""
     if par_le_tunnel():
         return "https"
-    annonce = (request.headers.get("X-Forwarded-Proto") or "").lower()
-    return "https" if annonce == "https" or request.scheme == "https" else "http"
-
-
-def _nom_de_domaine(hote):
-    if "." not in hote or hote.endswith(_SUFFIXES_LOCAUX):
-        return False
-    try:
-        ipaddress.ip_address(hote)
-        return False
-    except ValueError:
-        return True
-
-
-def domaine_des_applications():
-    """Le domaine sous lequel chaque application prend son sous-domaine, ou "".
-
-    Seulement pour une requete RELAYEE (le VPS pose X-Forwarded-*) qui arrive
-    par un nom de domaine. Sur le port du panneau, c'est son nom d'hote ; sur
-    celui des applications, ce nom d'hote moins l'application.
-    """
-    if not origines_separees() or not has_request_context():
-        return ""
-    # Par Funnel : un seul nom en .ts.net, pas de sous-domaine par
-    # application.
-    if par_le_tunnel():
-        return ""
-    if not (request.headers.get("X-Forwarded-Proto") or request.headers.get("X-Forwarded-For")):
-        return ""
-    hote = hote_demande().lower()
-    if not _nom_de_domaine(hote):
-        return ""
-    if sur_le_port_des_apps():
-        nom, _, reste = hote.partition(".")
-        return reste if nom in load() and _nom_de_domaine(reste) else ""
-    return hote
-
-
-def application_du_sous_domaine():
-    """Sur le port des applications : l'application que nomme le sous-domaine."""
-    if not sur_le_port_des_apps() or not domaine_des_applications():
-        return ""
-    return hote_demande().lower().partition(".")[0]
+    return "https" if request.scheme == "https" else "http"
 
 
 def modele_adresse_application():
     """L'adresse d'une application, « {nom} » a remplacer : la page en fait
     les liens de toutes ses tuiles sans redemander au serveur."""
-    domaine = domaine_des_applications()
-    if domaine:
-        return f"{schema_vu()}://{{nom}}.{domaine}/"
     base = origine_applications() if origines_separees() else ""
     return base + "/{nom}/"
 
@@ -584,7 +536,4 @@ def origine_de_l_application(nom):
 
 def cadres_permis():
     """La source frame-src des pages du panneau qui encadrent une application."""
-    domaine = domaine_des_applications()
-    if domaine:
-        return f"{schema_vu()}://*.{domaine}"
     return (origine_applications() if origines_separees() else "") or "'self'"

@@ -2137,8 +2137,7 @@ def api_securite():
         #
         # Les afficher separement, c'est repondre a la seule question utile
         # quand rien ne marche : est-ce le TLS qui manque, ou le reglage ?
-        "https_constate": request.headers.get("X-Forwarded-Proto", "").lower() == "https"
-                          or request.scheme == "https",
+        "https_constate": par_le_tunnel() or request.scheme == "https",
         "https": https_actif(),
         "cookie_secure": https_actif(),
         "adresse_publique": adresse_publique(),

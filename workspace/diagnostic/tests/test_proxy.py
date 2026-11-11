@@ -533,16 +533,6 @@ def test_le_cadre_pose_l_application_dans_la_zone_sure_comme_ios(hub):
 
 
 
-def test_sur_son_sous_domaine_l_application_installee_s_ouvre_chez_elle():
-    page = b"<html><head><title>x</title></head><body>ok</body></html>"
-    entetes = [("Content-Type", "text/html")]
-    with app.flask_app.test_request_context("/"):
-        app.g.sous_domaine = "blog"
-        data, _ = app.injecter_webapp(page, 200, entetes, "blog", "Blog")
-        manifeste = json.loads(app.webapp_manifeste("blog", "Blog").get_data(as_text=True))
-    assert b'<link rel="manifest" href="/__codelab/manifest.webmanifest">' in data
-    assert manifeste["start_url"] == manifeste["scope"] == "/"
-    assert manifeste["icons"][0]["src"] == "/__codelab/icone.png"
 
 
 def test_le_cadre_suit_le_manifeste_de_l_application():

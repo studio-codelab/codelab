@@ -55,9 +55,8 @@
    la ligne que trace le serveur. */
 const JETON=CODELAB_PAGE.jeton;
 
-/* Ou vivent les applications, « {nom} » a remplacer : un sous-domaine
-   (https://blog.toi.duckdns.org/) quand le panneau est ouvert par son nom de
-   domaine, le port des applications en local, ou un chemin du panneau.
+/* Ou vivent les applications, « {nom} » a remplacer : le port des
+   applications (en local ou par Tailscale Funnel), ou un chemin du panneau.
    Pose par le serveur (modele_adresse_application). */
 const APPS_MODELE=CODELAB_PAGE.appsModele;
 const urlApplication = nom => APPS_MODELE.replace('{nom}', encodeURIComponent(nom));

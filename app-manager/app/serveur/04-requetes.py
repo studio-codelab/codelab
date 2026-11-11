@@ -364,8 +364,8 @@ def poser_le_cookie_d_appareil(reponse):
     en HTTPS, par la meme regle que la session (https_actif, voir
     SessionSelonLaConnexion) et que le cookie de tournage.
     Vecu : il suivait SESSION_COOKIE_SECURE, fixe au demarrage par
-    APP_MANAGER_HTTPS seul. Derriere un VPS qui termine le TLS, la session
-    devenait Secure, pas lui (audit du 2026-11-11, R4)."""
+    APP_MANAGER_HTTPS seul : par Tailscale Funnel, la session devenait
+    Secure, pas lui (audit du 2026-11-11, R4)."""
     appareil = g.get("appareil_a_poser")
     if appareil:
         reponse.set_cookie(COOKIE_APPAREIL, appareil, max_age=APPAREIL_DUREE, path="/",
@@ -394,12 +394,6 @@ def separer_les_origines():
     if not origines_separees():
         return None
     if sur_le_port_des_apps():
-        # blog.toi.duckdns.org : tout le chemin appartient a l'application,
-        # « / » et « /theme.css » compris.
-        nom = application_du_sous_domaine()
-        if nom:
-            g.sous_domaine = nom
-            return _proxy(nom, request.path.lstrip("/"))
         if request.endpoint in ROUTES_APPLICATIONS or request.endpoint is None:
             return None
         # Le panneau ne s'affiche pas ici, et ses API n'y repondent pas : ce
@@ -422,7 +416,7 @@ def separer_les_origines():
         # renverrait vers la page elle-meme, et le navigateur tournerait en
         # rond. Le panneau sert alors l'application, comme avant la
         # separation -- degrade, mais joignable.
-        if not (domaine_des_applications() or origine_applications()):
+        if not origine_applications():
             # Par Funnel, jamais ce repli : il servirait l'application dans
             # l'origine du panneau, a tout internet. On attend son adresse.
             if par_le_tunnel():

@@ -426,7 +426,6 @@ def survivants(tmp_path, monkeypatch):
 @pytest.fixture
 def exposition(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.delenv("APP_MANAGER_PUBLIC_URL", raising=False)
     monkeypatch.setattr(app, "is_running", lambda n: False)
     monkeypatch.setattr(app, "under_root", lambda p: True)
     monkeypatch.setattr(os.path, "isdir", lambda p: True)

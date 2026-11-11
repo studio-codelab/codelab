@@ -616,66 +616,18 @@ def test_sans_separation_rien_ne_change(deux_espaces, monkeypatch):
 
 
 
-def test_par_le_domaine_une_application_est_renvoyee_a_son_sous_domaine(deux_origines):
-    """Le panneau ouvert par son nom de domaine (relaye par le VPS) envoie
-    chaque application a <nom>.<domaine> : rien a declarer."""
-    c = deux_origines
-    r = c.get("/public/page?x=1", base_url="http://toi.duckdns.org:9301", headers=_PAR_LE_VPS)
-    assert r.headers["Location"] == "https://public.toi.duckdns.org/page?x=1"
-    # En local (une adresse IP, sans le VPS) : le port des applications.
-    r = c.get("/public/", base_url="http://192.168.1.10:9301")
-    assert r.headers["Location"] == "http://192.168.1.10:9302/public/"
-    # Un nom du reseau domestique n'a pas de sous-domaines.
-    r = c.get("/public/", base_url="http://zimablade.local:9301", headers=_PAR_LE_VPS)
-    assert r.headers["Location"] == "https://zimablade.local:9302/public/" \
-        or r.headers["Location"] == "http://zimablade.local:9302/public/"
 
 
 
 
-def test_le_sous_domaine_sert_toute_l_application(deux_origines, monkeypatch):
-    """Sur le port des applications, blog.<domaine> sert « blog » : tout le
-    chemin lui appartient, la racine et /theme.css compris."""
-    vus = []
-    monkeypatch.setattr(app, "_proxy", lambda nom, sous: (vus.append((nom, sous)) or ("ok", 200)))
-    c = deux_origines
-    for chemin, attendu in (("/", ""), ("/theme.css", "theme.css"), ("/a/b?q=1", "a/b")):
-        r = c.get(chemin, base_url="http://public.toi.duckdns.org:9302", headers=_PAR_LE_VPS)
-        assert r.status_code == 200 and vus[-1] == ("public", attendu), chemin
-    # Un sous-domaine qui ne nomme aucune application : la garde habituelle.
-    r = c.get("/", base_url="http://inconnue.toi.duckdns.org:9302", headers=_PAR_LE_VPS)
-    assert "Ce n'est pas le panneau" in r.get_data(as_text=True)
-    # Sans le VPS devant, pas de sous-domaine.
-    vus.clear()
-    c.get("/", base_url="http://public.toi.duckdns.org:9302")
-    assert vus == []
 
 
 
 
-def test_la_session_vaut_pour_les_sous_domaines(deux_origines):
-    """Une application privee sur blog.<domaine> doit reconnaitre la session
-    ouverte sur <domaine> : le cookie porte Domain=<domaine>. En local, il
-    reste attache a l'hote."""
-    with app.flask_app.test_request_context(
-            "/", base_url="http://toi.duckdns.org:9301", headers=_PAR_LE_VPS):
-        assert app.flask_app.session_interface.get_cookie_domain(app.flask_app) == "toi.duckdns.org"
-    with app.flask_app.test_request_context("/", base_url="http://192.168.1.10:9301"):
-        assert app.flask_app.session_interface.get_cookie_domain(app.flask_app) is None
 
 
 
 
-def test_l_adresse_publique_s_apprend_par_le_domaine(deux_origines):
-    """Plus de champ « Adresse publique » : c'est le domaine par lequel le
-    panneau a ete ouvert depuis internet. Ensuite, seule une session peut la
-    changer -- pas un visiteur qui imiterait les en-tetes du VPS."""
-    c = deux_origines
-    app.ecrire_exposition({})
-    c.get("/login", base_url="http://toi.duckdns.org:9301", headers=_PAR_LE_VPS)
-    assert app.adresse_publique() == "https://toi.duckdns.org"
-    c.get("/login", base_url="http://pirate.example.org:9301", headers=_PAR_LE_VPS)
-    assert app.adresse_publique() == "https://toi.duckdns.org"
 
 
 # ---------- 34. Dagster dans le hub ----------

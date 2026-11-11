@@ -833,7 +833,7 @@ def test_les_conditions_du_navigateur_sont_annoncees(cles, monkeypatch):
 
     # Une adresse IP ne peut pas servir de relying party id -- meme en HTTPS,
     # et c'est bien la regle de l'IP qui doit refuser, pas celle du TLS.
-    d = _etat_passkeys(cles, Host="192.168.1.20:9001", **{"X-Forwarded-Proto": "https"})
+    d = cles.get("/api/passkeys/etat", base_url="https://192.168.1.20:9001").get_json()
     assert d["possible"] is False
     assert "nom de domaine" in d["empechement"]
 
@@ -843,19 +843,17 @@ def test_les_conditions_du_navigateur_sont_annoncees(cles, monkeypatch):
 
 
 
-def test_un_proxy_non_declare_n_est_pas_cru_sur_parole(cles, monkeypatch):
-    """X-Forwarded-Proto se pose par n'importe quel client.
-
-    Le message change alors de nature : ce n'est pas « mets du TLS », c'est
-    « declare ton proxy » -- et c'est la difference entre chercher une heure
-    et poser une variable.
-    """
+def test_x_forwarded_proto_ne_fait_pas_du_https(cles, monkeypatch):
+    """X-Forwarded-Proto se pose par n'importe quel client, et plus aucun
+    intermediaire legitime ne le pose depuis le retrait du VPS : Funnel se
+    reconnait a son port. Une requete en clair qui pretend etre en https
+    n'en devient pas une, ni pour les cles d'acces ni pour le cookie."""
     pytest.importorskip("webauthn")
-    # Le schema annonce suffit pour les cles : la signature porte l'origine
-    # que le navigateur a REELLEMENT vue, et ne concorde pas avec un schema
-    # invente. Aucun « proxy de confiance » a declarer.
     entetes = {"Host": "codelab.example.com", "X-Forwarded-Proto": "https"}
-    assert _etat_passkeys(cles, **entetes)["possible"] is True
+    d = _etat_passkeys(cles, **entetes)
+    assert d["possible"] is False and "HTTPS" in d["empechement"]
+    with app.flask_app.test_request_context("/", headers=entetes):
+        assert app.https_actif() is False
 
 
 

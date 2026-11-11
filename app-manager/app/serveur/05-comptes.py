@@ -643,24 +643,13 @@ def passkeys_disponibles():
 
 
 def _hote_et_schema():
-    """(hote sans port, schema), tels que le navigateur les voit.
-
-    X-Forwarded-Proto, n'importe quel client peut le poser : il ne sert
-    qu'a l'identifiant de la cle, que la signature du navigateur verifie de
-    toute facon (voir plus bas).
-    """
+    """(hote sans port, schema), tels que le navigateur les voit."""
     hote = (request.host or "").split(":")[0]
     # Par Funnel, le navigateur parle TOUJOURS en https, que tailscaled
     # l'annonce ou non (voir par_le_tunnel, 14-tunnel). Vecu : « Je ne peux
     # pas activer Touch ID », sur une adresse pourtant en https.
     if par_le_tunnel():
         return hote, "https"
-    # Le schema annonce par un proxy suffit ici : la signature d'une cle
-    # d'acces porte l'origine que le navigateur a REELLEMENT vue, et ne
-    # concordera pas avec un schema invente.
-    annonce = (request.headers.get("X-Forwarded-Proto") or "").lower()
-    if annonce in ("http", "https"):
-        return hote, annonce
     return hote, request.scheme
 
 

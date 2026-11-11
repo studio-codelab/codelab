@@ -81,7 +81,7 @@ toutes les commandes.
 ## 5. Application web servie par le hub
 
 Le panneau lance la commande de lancement dans **son** conteneur, et la sert sur
-`http://<serveur>:9002/<adresse>/` (derriere un VPS : `https://<adresse>.<domaine>/`).
+`http://<serveur>:9002/<adresse>/` (par Tailscale Funnel : `https://<machine>.<reseau>.ts.net:8443/<adresse>/`).
 Le port `9002` est une origine separee de celle du panneau (`9001`). Toutes les
 applications passent par lui : chacune ecoute sur un port interne (`$PORT`, de
 `9101` a `9140`), que le panneau relaie. Si le `9002` ne s'ouvre pas, ou vaut `0`
@@ -180,7 +180,7 @@ Les memes variables sont passees a la commande de build. Le `.env` du projet
 - **Description** : une ligne, saisie dans la fiche de l'application.
 - **Visibilite.** *Privee* : le panneau impose la connexion CodeLab et le droit
   sur l'application avant la premiere requete. *Publique* : ouverte a tous,
-  possible seulement si une adresse publique est declaree. Ce reglage se fait
+  possible seulement quand Tailscale Funnel est allume. Ce reglage se fait
   dans le panneau, **jamais dans le code** : n'ajoute pas ta propre barriere
   devant une application privee.
 - **Le cadre.** Le panneau pose `frame-ancestors` pour que le hub puisse
@@ -327,9 +327,9 @@ def exiger_codelab():
 
 Si l'application a aussi ses propres comptes, garde l'ordre de la connexion
 silencieuse ci-dessus : sa session, sinon le jeton, sinon son formulaire.
-Ce controle ne protege pas d'un script d'une autre application servie sur la
-meme origine (`:9002` sans VPS) : celui-la agit dans le navigateur du
-visiteur, avec son jeton. Seul un sous-domaine par application l'arrete.
+Ce controle ne protege pas d'un script d'une autre application, servie sur la
+meme origine (`:9002`, `:8443`) : celui-la agit dans le navigateur du
+visiteur, avec son jeton.
 
 ## 10. Pages d'erreur et en-tetes de securite
 

@@ -124,8 +124,8 @@ cd /workspace/mon-projet         # puis coder (codex, ou VS Code)
 
 1. Dans le panneau : *Applications > Ajouter un projet*, choisir le dossier. Les commandes sont
    proposées.
-2. Activer l'application. Elle est servie sur `http://<serveur>:9002/mon-projet/`, ou sur
-   `https://mon-projet.<domaine>/` derrière un VPS (voir [Les ports](#les-ports)).
+2. Activer l'application. Elle est servie sur `http://<serveur>:9002/mon-projet/` (voir
+   [Les ports](#les-ports)).
 3. À chaque modification : **Build** puis **Redémarrer**, dans la fiche de l'application.
 
 **Partager** : *Utilisateurs > Inviter quelqu'un*, puis cocher les applications dans sa fiche.
@@ -167,8 +167,8 @@ le panneau y lance les applications, Dagster y charge les `definitions.py`.
 
 ### Les ports
 
-- **Toutes les applications passent par le `9002`**, chacune sous `/<nom>/` (derrière un VPS : un
-  sous-domaine par application, `<nom>.<domaine>`). C'est une autre origine que le panneau.
+- **Toutes les applications passent par le `9002`**, chacune sous `/<nom>/`. C'est une autre
+  origine que le panneau.
 - Derrière, chacune écoute sur un **port interne** (`$PORT`, de `9101` à `9140`) que le panneau
   relaie ; ces ports ne sont pas publiés. C'est lui que montre la colonne « Port » de la page
   *Applications* : un `9003` ou un `9101` n'y est pas une adresse à ouvrir, on passe toujours par le
@@ -194,7 +194,6 @@ le panneau y lance les applications, Dagster y charge les `definitions.py`.
 | [`dev/AGENTS.md`](dev/AGENTS.md) | les règles qu'un projet doit suivre pour s'intégrer au hub ; lu par les agents de code |
 | [`workspace/README.md`](workspace/README.md) | anatomie d'un projet, configuration, base, dépendances |
 | [`app-manager/README.md`](app-manager/README.md) | le panneau : applications, comptes, mails, API |
-| [`app-manager/vps/README.md`](app-manager/vps/README.md) | exposer CodeLab sur Internet par un VPS |
 | [`postgres/README.md`](postgres/README.md) | bases, sauvegardes, **restauration** |
 | [`redis/README.md`](redis/README.md) · [`mailpit/README.md`](mailpit/README.md) · [`dagster/README.md`](dagster/README.md) · [`dagster/proxy/README.md`](dagster/proxy/README.md) | les autres services |
 | [`workspace/diagnostic/README.md`](workspace/diagnostic/README.md) | le diagnostic et le projet modèle |

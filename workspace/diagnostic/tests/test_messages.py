@@ -258,9 +258,9 @@ def test_une_page_d_un_autre_site_ne_fait_pas_agir_l_administrateur(boite):
 def test_un_formulaire_d_une_application_voisine_n_ecrit_pas_au_nom_du_compte(
         messagerie, appli_messages, monkeypatch):
     """CSRF par /compte/ (audit du 2026-11-11, R1). Le proxy y laisse passer
-    l'administrateur, et derriere le VPS le cookie de session vaut pour tous
-    les sous-domaines : SameSite=Lax laisse passer un formulaire d'une
-    application voisine, qui est du meme site. Sans X-Messages, rien ne
+    l'administrateur, et SameSite=Lax laisse passer un formulaire du meme
+    site servi sur un autre port (Dagster, Mailpit, un serveur de
+    developpement). Sans X-Messages, rien ne
     s'ecrit ; le panneau, lui, pose l'en-tete sur ce qu'il relaie du hub."""
     c, _partis = messagerie
     jeton = {"X-CodeLab-Auth": app.jeton_signe(app.MESSAGERIE_NOM, "admin", "admin")}
@@ -312,7 +312,7 @@ def test_l_application_messages_range_et_confirme():
     corps = page.split("async function projetSupprimer(")[1].split("\n}")[0]
     assert "demander(" in corps
     # Toutes les adresses sont relatives : la page vit sous /messages/ (port
-    # des applications) comme a la racine d'un sous-domaine.
+    # des applications), dont le proxy retire le prefixe.
     assert "'/api/" not in page and "`/api/" not in page and "/mode.js" not in page
 
 

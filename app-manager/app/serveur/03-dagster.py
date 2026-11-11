@@ -418,10 +418,6 @@ def lien_panneau():
     # Par Funnel, sur le port des applications : l'adresse du panneau.
     if sur_le_tunnel_des_apps():
         return (origine_du_tunnel("panneau") or "") + "/"
-    # Sous un sous-domaine (blog.toi.duckdns.org), le panneau est au domaine.
-    domaine = domaine_des_applications()
-    if domaine:
-        return f"{schema_vu()}://{domaine}/"
     hote = hote_demande()
     if not hote:
         return "/"

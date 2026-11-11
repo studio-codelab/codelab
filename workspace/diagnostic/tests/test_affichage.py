@@ -790,28 +790,6 @@ def test_le_ruban_ramene_au_hub_et_pas_a_la_racine_des_applications(monkeypatch)
 
 
 
-def test_sous_un_sous_domaine_le_lien_du_hub_mene_au_domaine(monkeypatch):
-    """blog.toi.duckdns.org ramene a toi.duckdns.org : le panneau est au
-    domaine, chaque application a un sous-domaine a son nom."""
-    monkeypatch.setitem(app._origines_separees, "actif", True)
-    monkeypatch.setattr(app, "APPS_PORT", 9002)
-    monkeypatch.setattr(app, "load", lambda: {"blog": {"port": 8100}})
-    entetes = {"X-Forwarded-Proto": "https", "X-Forwarded-For": "203.0.113.5"}
-    with app.flask_app.test_request_context(
-            "/", environ_overrides={"HTTP_HOST": "blog.toi.duckdns.org", "SERVER_PORT": "9002"},
-            headers=entetes):
-        assert app.application_du_sous_domaine() == "blog"
-        assert app.lien_panneau() == "https://toi.duckdns.org/"
-    # Separation inactive : rien ne change, le lien reste relatif.
-    monkeypatch.setitem(app._origines_separees, "actif", False)
-    with app.flask_app.test_request_context(
-            "/", environ_overrides={"HTTP_HOST": "blog.toi.duckdns.org", "SERVER_PORT": "9002"},
-            headers=entetes):
-        assert app.lien_panneau() == "/"
-
-
-
-
 def test_un_nom_d_hote_hostile_ne_se_recopie_pas_dans_la_page():
     """request.host vient de l'en-tete Host, donc du client. Il finit dans un
     attribut href : un guillemet bien place en sortirait, et deviendrait du
@@ -853,7 +831,7 @@ def test_sans_adresse_utilisable_on_ne_redirige_pas_en_rond():
     navigateur tournerait en rond jusqu'a abandonner."""
     src = _page_panneau("app.py")
     bloc = src.split("def separer_les_origines():")[1].split("\n\n\n")[0]
-    assert "if not (domaine_des_applications() or origine_applications()):" in bloc
+    assert "if not origine_applications():" in bloc
     assert "return None" in bloc
 
 

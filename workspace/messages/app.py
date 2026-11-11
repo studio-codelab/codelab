@@ -100,14 +100,15 @@ def verifier_l_identite():
     #   que get_json(force=True) lirait ; il ne sait pas poser un en-tete a
     #   lui sans demander la permission au serveur (CORS), qui ne la donne pas.
     #   /compte/ aussi : le proxy y laisse passer l'administrateur, et
-    #   SameSite=Lax ne bloque pas un formulaire d'une application voisine
-    #   (blog.toi.duckdns.org vers messages.toi.duckdns.org : meme site).
+    #   SameSite=Lax ne bloque pas un formulaire du MEME site sur une autre
+    #   origine (un autre port du serveur : Dagster, Mailpit, un serveur de
+    #   developpement).
     # DEPEND DE : appel() et le fetch de index.html (porte admin), et
     #   appeler_messagerie (panneau, 06-messages-et-journal.py), qui pose cet
     #   en-tete sur tout ce qu'il relaie du hub (porte compte).
-    # ECARTE : s'en servir contre un script de la MEME origine, qui pose
-    #   l'en-tete qu'il veut. Seule une origine par application (le VPS)
-    #   l'arrete ; voir « Ce que CodeLab ne protege pas » dans SECURITE.md.
+    # ECARTE : s'en servir contre un script de la MEME origine (une autre
+    #   application du port des applications), qui pose l'en-tete qu'il veut ;
+    #   voir « Ce que CodeLab ne protege pas » dans SECURITE.md.
     #   /interne/ n'en a pas besoin : aucune session ne porte le role panneau.
     if (porte in ("admin", "compte") and request.method not in ("GET", "HEAD")
             and request.headers.get("X-Messages") != "1"):

@@ -593,10 +593,8 @@ def categorie_valide(brute, connues=None):
 # ouverture qui n'existe pas. Tant qu'aucune adresse publique n'est connue,
 # le panneau ne propose donc pas de rendre une application publique.
 #
-# RIEN A SAISIR. L'adresse publique est le nom de domaine par lequel le
-# panneau a ete ouvert depuis internet, relaye par le VPS (voir
-# noter_l_adresse_publique). APP_MANAGER_PUBLIC_URL, dans le compose,
-# l'emporte : c'est la marche arriere qui ne depend pas du panneau.
+# RIEN A SAISIR. L'adresse publique est celle de Tailscale Funnel, quand
+# l'acces depuis internet est allume (adresse_funnel).
 
 
 def _vrai(valeur):
@@ -621,67 +619,30 @@ def ecrire_parametre(cle, valeur):
                        (cle, json.dumps(valeur, ensure_ascii=False)))
 
 
-def lire_exposition():
-    d = lire_parametre("exposition", {})
-    return d if isinstance(d, dict) else {}
-
-
-def ecrire_exposition(reglages):
-    ecrire_parametre("exposition", reglages)
-
-
-@flask_app.before_request
-def noter_l_adresse_publique():
-    """Retient le domaine par lequel le panneau est ouvert depuis internet.
-
-    La premiere fois pour n'importe quelle requete relayee ; ensuite, seule
-    une session ouverte peut la changer : un visiteur du reseau local qui
-    imiterait les en-tetes du VPS ne detourne pas les liens d'invitation.
-    """
-    if sur_le_port_des_apps():
-        return None
-    domaine = domaine_des_applications()
-    if not domaine:
-        return None
-    vue = f"{schema_vu()}://{domaine}"
-    connue = str(lire_exposition().get("adresse_publique") or "")
-    if vue == connue or (connue and not is_authed()):
-        return None
-    try:
-        ecrire_exposition({**lire_exposition(), "adresse_publique": vue})
-    except Exception:                                             # noqa: BLE001
-        pass
-    return None
-
-
 def adresse_publique():
-    """L'adresse publique du serveur, ou "".
+    """L'adresse publique du serveur : celle de Tailscale Funnel quand
+    l'acces depuis internet est allume, sinon "".
 
-    La variable d'environnement l'emporte ; puis l'adresse Tailscale Funnel
-    quand l'acces depuis internet est allume ; sinon, la derniere adresse
-    constatee (noter_l_adresse_publique).
     Vecu : « Le lien partage aux nouveaux utilisateurs doit embarquer l'url
     tailscale configure si active. » Un lien d'invitation fait sur
     l'adresse locale ne s'ouvre pas de l'exterieur.
+    ESSAYE ET ECARTE : APP_MANAGER_PUBLIC_URL et l'adresse constatee d'une
+    requete relayee par un VPS, retirees avec le VPS. La ligne
+    « exposition » de la table parametres reste dans les bases existantes,
+    sans lecteur.
     """
-    depuis_env = (os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()
-    if depuis_env:
-        return depuis_env.rstrip("/")
-    funnel = adresse_funnel()
-    if funnel:
-        return funnel
-    return str(lire_exposition().get("adresse_publique") or "").strip().rstrip("/")
+    return adresse_funnel()
 
 
 def https_actif():
     """La requete en cours arrive-t-elle en HTTPS ?
 
     PLUS DE REGLAGE : le cookie de session devient « Secure » et HSTS part
-    des que le navigateur parle en https -- directement, ou derriere un
-    proxy qui l'annonce (X-Forwarded-Proto). Croire cet en-tete ici ne
-    donne rien a un menteur : un cookie Secure pose sur une connexion en
-    clair est ignore par le navigateur, et HSTS aussi. APP_MANAGER_HTTPS=1
+    des que le navigateur parle en https -- par Tailscale Funnel (reconnu a
+    son port, tailscaled termine le TLS) ou directement. APP_MANAGER_HTTPS=1
     le force (jamais l'inverse).
+    ESSAYE ET ECARTE : croire X-Forwarded-Proto, l'annonce d'un VPS ; retire
+    avec lui, plus personne ne la pose legitimement.
     PROTEGE AUSSI : les cookies d'appareil (poser_le_cookie_d_appareil) et de
     tournage (echanger_le_ticket), qui suivent la meme regle que la session.
     """
@@ -691,8 +652,7 @@ def https_actif():
         return False
     if par_le_tunnel():
         return True
-    return request.is_secure or (
-        (request.headers.get("X-Forwarded-Proto") or "").lower() == "https")
+    return request.is_secure
 
 
 # ------------- l'administration reste sur le reseau local -------------
@@ -806,8 +766,8 @@ def refus_admin_hors_reseau():
         # exactement le moment ou l'on a besoin de savoir que c'est le proxy
         # qui brouille la piste, et non son adresse.
         return ("L'administration ne répond qu'au réseau local, en connexion directe : "
-                "cette requête passe par un intermédiaire (proxy, VPS). Connecte-toi "
-                "depuis chez toi, sur l'adresse locale du panneau.")
+                "cette requête passe par un intermédiaire (un proxy, ou Tailscale Funnel). "
+                "Connecte-toi depuis chez toi, sur l'adresse locale du panneau.")
     return ("L'administration est limitee au reseau local. Cette requete vient "
             "de " + _client_ip() + ".")
 
@@ -818,19 +778,13 @@ from flask.sessions import SecureCookieSessionInterface  # noqa: E402
 class SessionSelonLaConnexion(SecureCookieSessionInterface):
     """« Secure » des que la requete arrive en HTTPS, sans reglage.
 
-    Et valable pour les sous-domaines quand le panneau est ouvert par son
-    nom de domaine : une application privee (blog.toi.duckdns.org) doit
-    reconnaitre la session ouverte sur toi.duckdns.org. Le cookie reste
-    HttpOnly, et le proxy le retire avant de relayer : l'application ne le
-    voit jamais -- exactement comme avec le port des applications, ou le
-    navigateur l'envoyait deja (un cookie ne tient pas compte du port).
+    Le navigateur envoie aussi ce cookie au port des applications (un
+    cookie ne tient pas compte du port) : il reste HttpOnly, et le proxy le
+    retire avant de relayer, l'application ne le voit jamais (regle 19).
     """
 
     def get_cookie_secure(self, app):
         return https_actif()
-
-    def get_cookie_domain(self, app):
-        return domaine_des_applications() or None
 
 
 flask_app.session_interface = SessionSelonLaConnexion()

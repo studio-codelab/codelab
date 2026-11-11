@@ -616,15 +616,8 @@ PREFIXE_CODELAB = "__codelab/"
 
 
 def racine_application(nom):
-    """Le chemin ou commence l'application, vu de son navigateur.
-
-    « / » sur son sous-domaine (blog.toi.duckdns.org), « /<nom>/ » sur
-    l'adresse partagee. Le manifeste, son icone et sa portee en dependent :
-    ecrits « /blog/ » sur le sous-domaine, ils pointaient vers une page que
-    l'application n'a pas, et l'app installee s'ouvrait sur une erreur.
-    """
-    if getattr(g, "sous_domaine", ""):
-        return "/"
+    """Le chemin ou commence l'application, vu de son navigateur : « /<nom>/ ».
+    Le manifeste, son icone et sa portee en dependent."""
     return "/" + urllib.parse.quote(nom, safe="") + "/"
 
 
@@ -737,9 +730,6 @@ def origines_encadrantes():
     sources = []
     if sur_le_tunnel_des_apps() and origine_du_tunnel("panneau"):
         sources.append(origine_du_tunnel("panneau"))
-    domaine = domaine_des_applications()
-    if domaine:
-        sources.append(f"{schema_vu()}://{domaine}")
     hote = hote_demande()
     if hote and has_request_context():
         sources.append(f"{request.scheme}://{hote}:{PANEL_PORT}")
@@ -1092,9 +1082,7 @@ def echanger_le_ticket(name, sub):
     cible = request.path + ("?" + urllib.parse.urlencode(reste) if reste else "")
     r = redirect(cible, 302)
     # Secure par la meme regle que la session (https_actif) : request.is_secure
-    # seul ne voit pas le TLS termine par un VPS (X-Forwarded-Proto). Un
-    # client qui ment sur cet en-tete ne rend Secure que son propre cookie,
-    # que son navigateur ignore alors en clair.
+    # seul ne voit pas le TLS que termine tailscaled (Funnel).
     r.set_cookie(TOURNAGE_COOKIE, jeton, max_age=TOURNAGE_DUREE, path="/",
                  httponly=True, samesite="Lax", secure=https_actif())
     return r

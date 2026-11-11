@@ -12,7 +12,7 @@ Le cœur de CodeLab. Un seul service Flask (servi par waitress) qui :
 | Port | Sert |
 |---|---|
 | `9001` | le panneau et son API |
-| `9002` | toutes les applications, sous `/<nom>/`, ou sous `<nom>.<domaine>` derrière un VPS (`APP_MANAGER_APPS_PORT`, `0` pour les remettre sur `9001` ; s'il ne s'ouvre pas, même repli) |
+| `9002` | toutes les applications, sous `/<nom>/` (`APP_MANAGER_APPS_PORT`, `0` pour les remettre sur `9001` ; s'il ne s'ouvre pas, même repli) |
 | `9101`–`9140` | le port interne de chaque application (`$PORT`), non publié : le `9002` le relaie |
 
 Ce que l'utilisateur voit du panneau est décrit dans [`FONCTIONNALITES.md`](../FONCTIONNALITES.md) ;
@@ -34,7 +34,6 @@ ses garanties de sécurité dans [`SECURITE.md`](../SECURITE.md).
 | `app/environnement-app.js` | injecté par le proxy en tête de chaque page d'application : mode, appareil, plateforme, bords ; simule iOS dans le cadre |
 | `app/mode.js` | le **mode** : site web ou application (icône de l'écran d'accueil), lu une fois et posé sur `<html>` (`mode-app` / `mode-site`) pour ses pages ; la **largeur** (téléphone, tablette, ordinateur) se règle en CSS, avec les seuils décrits en tête de `theme.css` |
 | `app/polices/` | Manrope, auto-hébergée, servie par liste blanche ; Plus Jakarta Sans, que seule l'interface Mailpit recopie à sa construction |
-| `vps/` | exposer le panneau par un VPS ([`vps/README.md`](vps/README.md)) ; ne fait pas partie de l'image |
 
 ## Cycle de vie d'une application
 
@@ -91,7 +90,7 @@ Le panneau ne crée jamais de projet : il **déclare** un dossier existant de `/
     et `X-CodeLab-Authenticated`.
 - **Visibilité** : une application privée exige une session autorisée pour elle. Sans session, la
   personne passe par `/login?suite=/ouvrir.app/<nom>/<chemin>` . Une application ne peut devenir
-  publique que si une adresse publique est déclarée. `locale` (« Réseau local ») : publique pour
+  publique que si Tailscale Funnel est allumé (son adresse est l'adresse publique). `locale` (« Réseau local ») : publique pour
   une requête du réseau local (`client_est_local`), privée sinon, Funnel compris
   (`ouverte_sans_compte`).
 - **Connexions** : le proxy garde ses connexions vers chaque application (au plus une par fil, 4 s
@@ -170,7 +169,7 @@ Une base SQLite dans `APP_MANAGER_STATE` (`/DATA/AppData/codelab/app-manager` su
 | `abonnements_push` | une ligne par appareil abonné aux notifications (compte, session, adresse du service de notification, clés du navigateur) ; supprimée avec la session ou quand le service la dit morte |
 | `messages`, `pieces`, `taches`, `sous_taches`, `projets` | les données de Messages d'avant sa séparation : elles passent dans l'application Messages au premier démarrage (`reprendre_la_messagerie`), puis ces tables restent vides. Une migration future les retirera |
 | `processus` | processus lancés, retrouvés après un redémarrage du panneau |
-| `parametres` | réglages en clair : exposition, VPS |
+| `parametres` | réglages en clair : Tailscale Funnel (`tunnel`), conservation du journal… (une ligne `exposition` d'avant le retrait du VPS peut y rester, sans lecteur) |
 | `reglages_chiffres` | réglages sensibles, chiffrés (Fernet) avec `APP_MANAGER_CHIFFREMENT_CLE` |
 | `meta` | compteurs internes |
 
@@ -239,7 +238,6 @@ Une valeur existante n'est jamais régénérée.
 | `APP_MANAGER_APPS_PORT` | `9002` | port des applications ; `0` = sous le port du panneau |
 | `APP_MANAGER_TAILSCALE`, `APP_MANAGER_TAILSCALED` | `/usr/local/bin/tailscale`, `/usr/local/bin/tailscaled` | les binaires de Tailscale Funnel (Paramètres > Sécurité) ; absents, l'interrupteur est grisé |
 | `APP_MANAGER_TUNNEL_UID` | `1002` | l'uid de tailscaled et de tailscale, qu'aucune application ne partage |
-| `APP_MANAGER_PUBLIC_URL` | — | adresse publique ; sinon l'adresse Tailscale Funnel quand l'accès depuis internet est allumé, sinon le domaine par lequel le panneau a été ouvert depuis internet |
 | `APP_MANAGER_HTTPS` | — | `1` force `Secure` sur les cookies de session, d'appareil et de tournage (sinon constaté à chaque requête) |
 | `APP_MANAGER_ADMIN_2FA` | `1` | `0` : marche arrière si le second facteur admin est perdu |
 | `APP_MANAGER_ISOLER` | `1` | isolation du système de fichiers par application |
@@ -286,7 +284,7 @@ dans le journal du conteneur avec la méthode et la route (`docker logs codelab-
 | Appareils | `GET /api/mon-compte/appareils`, `DELETE /api/mon-compte/appareils/<id>`, `POST /api/mon-compte/appareils/deconnecter-autres` ; `GET/DELETE /api/utilisateurs/<nom>/appareils` (admin) |
 | Mon compte | `GET /api/mon-compte`, `POST/DELETE /api/mon-compte/suppression` (demander, annuler), `PUT /api/mon-compte/profil` (prénom, nom), `POST /api/mon-compte/email[/code\|/confirmer]`, `POST /api/compte/mot-de-passe`, `GET/POST/DELETE /api/mon-compte/passkeys[/options\|/<id>]`, `GET /api/passkeys/etat` (sans session), `GET /qr/totp.svg`, `GET /approuver/<id>` et `POST /api/approbations/<id>` (`{nombre}` ou `{refuser}` : répondre, depuis un appareil connecté, à une connexion en attente), `GET /api/mon-compte/totp`, `POST /api/mon-compte/totp/preparer\|activer\|retirer` (application d'authentification d'un compte) |
 | Version (admin) | `GET /api/version` : le commit de l'image et sa date (aucun appel sortant) |
-| Sécurité | `GET /api/securite`, `PUT /api/securite/exposition`, `POST /api/securite/totp/preparer\|activer\|desactiver`, `GET/PUT /api/vps` ; `GET /api/sauvegardes` (dernières archives, alerte hors serveur), `GET /api/sauvegardes/<nom>` (télécharge, note la copie), `PUT /api/sauvegardes/copie` (`{externe}`), `GET/PUT /api/journal/conservation` (`{mois}` : 3, 6, 12, 24 ou 0), `GET/PUT /api/tunnel` (`{actif, cle, nom, deconnecter}`, chaque champ facultatif ; rend l'état, les deux adresses, et seulement *si* une clé est enregistrée), `GET /api/tunnel/qr` — admin |
+| Sécurité | `GET /api/securite`, `POST /api/securite/totp/preparer\|activer\|desactiver` ; `GET /api/sauvegardes` (dernières archives, alerte hors serveur), `GET /api/sauvegardes/<nom>` (télécharge, note la copie), `PUT /api/sauvegardes/copie` (`{externe}`), `GET/PUT /api/journal/conservation` (`{mois}` : 3, 6, 12, 24 ou 0), `GET/PUT /api/tunnel` (`{actif, cle, nom, deconnecter}`, chaque champ facultatif ; rend l'état, les deux adresses, et seulement *si* une clé est enregistrée), `GET /api/tunnel/qr` — admin |
 | Comptes (admin) | `GET/POST /api/utilisateurs`, `PUT/DELETE /api/utilisateurs/<nom>`, `GET/PUT /api/apps/<nom>/acces`, `GET /api/activite`, `GET /api/activite/carte` |
 | Applications (admin) | `GET /api/apps`, `GET /api/browse`, `GET /api/detect`, `POST /api/add`, `PUT/DELETE /api/app/<nom>`, `POST /api/app/<nom>/renommer`, `POST /api/app/<nom>/archiver\|desarchiver` (`GET /api/apps` les rend dans `archivees`), `POST /api/toggle\|restart\|build\|deploy\|visibility/<nom>`, `GET /api/metrics/<nom>`, `GET /api/logs/<nom>[/stream]`, `PUT/DELETE /api/app/<nom>/logo` |
 | Hub | `GET /api/mes-apps` (avec `nouvelle_version`, `ouverte_le` et `presentation` par application), `POST/DELETE /api/mes-apps/<nom>/masquer`, `POST /api/mes-apps/<nom>/ouverte` (note la version vue), `GET/PUT /api/hub/disposition` (la composition du hub et le catalogue des widgets permis), `GET /api/hub/pouls?quoi=serveur,activite` (admin : la charge de la machine, mesurée toutes les dix secondes par le moniteur, et les ouvertures des quatorze derniers jours, pour les widgets Serveur et Activité), `GET /api/icon/<nom>`, `GET /api/presentations/<nom>/video\|affiche` (la vidéo du projet, avec les droits de l'application, requêtes `Range` acceptées), `GET /api/categories` (tous) ; `PUT /api/apps/<nom>/presentation` (admin : `{visible}`, la montrer dans le hub ou non), `PUT /api/categories` (admin) |

@@ -71,7 +71,7 @@ hors du réseau.
 |---|---|
 | panneau fermé | ses routes d'administration exigent une session |
 | origine des applications | le panneau ne répond pas sur le port des applications |
-| exposition | ce qui doit être posé quand la stack sort du réseau local |
+| exposition | si le panneau est publié sur internet, et par où (Tailscale Funnel) |
 | isolation | le noyau accepte les namespaces utilisateur |
 | provenance | des adresses publiques dans le journal alors que rien n'est publié |
 

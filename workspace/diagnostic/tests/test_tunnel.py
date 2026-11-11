@@ -67,7 +67,6 @@ def test_par_funnel_les_adresses_sont_celles_de_la_machine(funnel):
     nue), les applications sur 8443. Deux origines, comme 9001 et 9002."""
     entetes = {"X-Forwarded-For": "203.0.113.7", "X-Forwarded-Proto": "https"}
     with app.flask_app.test_request_context("/", headers=entetes, **_par_funnel("panneau")):
-        assert app.domaine_des_applications() == ""
         assert app.origine_applications() == "https://%s:8443" % HOTE
         assert app.modele_adresse_application() == "https://%s:8443/{nom}/" % HOTE
         assert app.cadres_permis() == "https://%s:8443" % HOTE
@@ -383,7 +382,6 @@ def test_le_lien_d_invitation_porte_l_adresse_tailscale(funnel, monkeypatch):
     l'url tailscale configure si active. » L'administrateur invite depuis le
     reseau local : un lien fait sur l'adresse locale ne s'ouvrirait pas de
     l'exterieur."""
-    monkeypatch.delenv("APP_MANAGER_PUBLIC_URL", raising=False)
     app.ecrire_parametre("tunnel", {"actif": True})
     with app.flask_app.test_request_context("/", base_url="http://192.168.1.20:9001"):
         assert app.lien_invitation("abc") == "https://%s/invitation/abc" % HOTE
@@ -399,7 +397,3 @@ def test_le_lien_d_invitation_porte_l_adresse_tailscale(funnel, monkeypatch):
     app.ecrire_parametre("tunnel", {"actif": False, "annoncee": "https://" + HOTE})
     with app.flask_app.test_request_context("/", base_url="http://192.168.1.20:9001"):
         assert app.lien_invitation("abc") == "http://192.168.1.20:9001/invitation/abc"
-    # Une adresse publique fixee a la main garde la priorite.
-    app.ecrire_parametre("tunnel", {"actif": True})
-    monkeypatch.setenv("APP_MANAGER_PUBLIC_URL", "https://codelab.example.org/")
-    assert app.adresse_publique() == "https://codelab.example.org"
