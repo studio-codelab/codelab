@@ -301,6 +301,11 @@ def _client_ip():
     ECARTE : un reglage « proxy de confiance » (Exposition,
       APP_MANAGER_TRUST_PROXY), retire : la securite la plus stricte n'est
       pas une option.
+      Une limite PAR COMPTE en plus de celle-ci (audit du 2026-11-11, R5) :
+      elle ne rend pas la porte aux visiteurs du VPS, et elle laisserait
+      n'importe qui, de n'importe ou, fermer celle d'un compte precis en se
+      trompant cinq fois sur son nom. Le second facteur, obligatoire pour
+      tous les comptes, rend deja inutile la force brute du mot de passe.
     SEULE EXCEPTION, Tailscale Funnel (par_le_tunnel) : la connexion vient
       alors de tailscaled, sur 127.0.0.1, pour TOUS les visiteurs -- un seul
       qui se trompe cinq fois fermerait la porte a tout le monde. Ce port

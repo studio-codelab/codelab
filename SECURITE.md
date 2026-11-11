@@ -378,7 +378,11 @@ Sans lui, les réglages chiffrés deviennent illisibles.
   qu'une application n'est pas de toi.
 - **Derrière le VPS, tous les visiteurs d'Internet partagent une adresse** pour la limite des
   essais : cinq mauvais mots de passe, de qui que ce soit, suspendent les connexions distantes
-  cinq minutes. C'est voulu : croire `X-Forwarded-For` permettrait de contourner la limite.
+  cinq minutes. C'est voulu : croire `X-Forwarded-For` permettrait de contourner la limite. Une
+  limite par compte, en plus, ne rendrait rien : elle laisserait n'importe qui fermer la porte d'un
+  compte précis, de n'importe où, et le second facteur obligatoire rend déjà la force brute du mot
+  de passe inutile. Par Tailscale Funnel, chaque visiteur garde sa propre adresse (`tailscaled` la
+  pose, le visiteur ne la choisit pas).
 - **L'administrateur voit tout** : les applications, le journal, et les mails passés par Mailpit.
   Il ne voit jamais un mot de passe, ni un mail de sécurité : codes, liens d'invitation et alertes
   de connexion partent en direct, sans copie dans Mailpit.
