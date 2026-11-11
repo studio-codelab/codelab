@@ -912,14 +912,42 @@ def api_delete(n):
     return jsonify({"ok": True})
 
 
+# UN DROIT NE SURVIT PAS A L'APPLICATION QU'IL OUVRE.
+# POURQUOI : les droits d'un compte sont une liste de NOMS d'application. Une
+#   application supprimee laissait son nom dans ces listes ; une application
+#   creee plus tard sous le meme nom (le nom est rendu, « Outil » -> /outil/)
+#   s'ouvrait aussitot a ces comptes, sans que l'administrateur le leur ait
+#   donne. Vecu : audit de l'espace d'administration (« les droits sont bien
+#   proteges ») -- Marie voyait dans son hub une application toute neuve.
+# REGLE : 12 de SECURITE.md (une application privee ne s'ouvre qu'a un
+#   compte autorise).
+# DEPEND DE / PROTEGE AUSSI : supprimer_application (suppression a la main)
+#   et effacer_la_configuration (archive trop ancienne) ; le renommage, lui,
+#   deplace le droit (_renommer_references).
+# ECARTE : verifier a l'ouverture que le droit est plus recent que
+#   l'application -- il faudrait dater chaque droit, et un oubli ailleurs
+#   rouvrirait la faille ; retirer le nom a la source suffit.
+def retirer_des_projets(n):
+    """Retire l'application n des projets autorises de chaque compte."""
+    comptes = lire_utilisateurs()
+    touche = False
+    for compte in comptes.values():
+        if n in (compte.get("projets") or []):
+            compte["projets"] = [p for p in compte["projets"] if p != n]
+            touche = True
+    if touche:
+        ecrire_utilisateurs(comptes)
+
+
 def supprimer_application(n):
-    """Arrete l'application et efface sa declaration : la fiche, et les
-    destinataires de ses alertes. Le code, dans /workspace, n'est jamais
+    """Arrete l'application et efface sa declaration : la fiche, les droits
+    des comptes qui l'ouvraient, et les destinataires de ses alertes. Le code, dans /workspace, n'est jamais
     touche (le panneau n'ecrit pas dans /workspace)."""
     stop(n)
     apps = load()
     apps.pop(n, None)
     save(apps)
+    retirer_des_projets(n)
     par_app = reglage("alertes_par_app", {}) or {}
     if par_app.pop(n, None) is not None:
         try:
@@ -1038,14 +1066,7 @@ def effacer_la_configuration(n):
     a["enabled"] = False
     a["configuration_effacee_le"] = int(time.time())
     save(apps)
-    comptes = lire_utilisateurs()
-    touche = False
-    for compte in comptes.values():
-        if n in (compte.get("projets") or []):
-            compte["projets"] = [p for p in compte["projets"] if p != n]
-            touche = True
-    if touche:
-        ecrire_utilisateurs(comptes)
+    retirer_des_projets(n)
     par_app = reglage("alertes_par_app", {}) or {}
     if par_app.pop(n, None) is not None:
         ecrire_reglage("alertes_par_app", par_app or None)

@@ -2335,3 +2335,36 @@ def test_un_port_interne_pris_au_panneau_est_reattribue(monkeypatch):
     assert app.PORT_MIN <= ports["b"] <= app.PORT_MAX and ports["a"] != ports["b"]
     assert ports["c"] == 9003
     assert "Port interne ($PORT), relayé par le port des applications" in _page_panneau("dashboard.html")
+
+
+def test_un_droit_ne_survit_pas_a_l_application_supprimee(hub, monkeypatch):
+    """Vecu : audit de l'espace d'administration (« les droits sont bien
+    proteges »). Supprimer une application laissait son nom dans les projets
+    autorises des comptes : une application creee plus tard sous le meme nom
+    s'ouvrait aussitot a ces comptes, sans que l'administrateur le leur ait
+    donne (regle 12). Temoin : un renommage, lui, deplace le droit."""
+    c = hub
+    monkeypatch.setattr(app, "stop", lambda n: None)
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    u = app.flask_app.test_client()
+    _connecte(u, "marie", "mot-de-passe-long")
+    mes = lambda: {a["name"] for a in u.get("/api/mes-apps").get_json()["apps"]}
+    assert "compta" in mes()
+
+    assert c.delete("/api/app/compta").status_code == 200
+    assert "compta" not in app.lire_utilisateurs()["marie"]["projets"]
+    # Une nouvelle application prend le nom rendu : elle reste fermee a Marie.
+    apps = app.load()
+    apps["compta"] = {"path": "/w/n", "command": "x", "port": 9104, "enabled": True,
+                      "visibility": "privee"}
+    app.save(apps)
+    assert "compta" not in mes()
+    assert u.get("/compta/").status_code == 403
+
+    # Temoin : le droit suit un renommage, il ne se perd pas.
+    comptes = app.lire_utilisateurs()
+    comptes["marie"]["projets"] = ["secret"]
+    app.ecrire_utilisateurs(comptes)
+    assert c.post("/api/app/secret/renommer", json={"nom": "Coffre"}).status_code == 200
+    assert app.lire_utilisateurs()["marie"]["projets"] == ["coffre"]
+    assert "coffre" in mes()
