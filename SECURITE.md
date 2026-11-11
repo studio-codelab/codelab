@@ -183,8 +183,10 @@ Sans lui, les réglages chiffrés deviennent illisibles.
   - sa page et son API ne répondent qu'au rôle `admin` ;
   - `/compte/...`, par où le panneau relaie le hub, au compte du jeton, pour ses seuls messages ;
   - `/interne/...` au seul rôle `panneau`, qu'aucune session ne peut porter (`jeton_du_panneau`).
-  Ce qui modifie exige en plus l'en-tête `X-Messages` (un formulaire d'un autre site ne sait pas le
-  poser). Le panneau garde la vérification des droits (sur quelle application un compte peut
+  Ce qui modifie, sur la page, son API et `/compte/...`, exige en plus l'en-tête `X-Messages` : un
+  formulaire d'un autre site, ou d'une application voisine du même domaine, ne sait pas le poser.
+  Le panneau le pose sur ce qu'il relaie. Il ne protège pas d'un script de la même origine (voir
+  plus bas). Le panneau garde la vérification des droits (sur quelle application un compte peut
   écrire), le délai entre deux messages et les envois (mail, notifications).
 - **Logos.** Seuls les PNG, JPEG et GIF sont acceptés (512 Ko au plus), reconnus à leur signature. Le
   SVG est refusé, parce qu'il peut porter du script.
@@ -216,7 +218,9 @@ Sans lui, les réglages chiffrés deviennent illisibles.
   alors ouvert sur ta box.
 - **Accès par Tailscale Funnel** (Paramètres > Sécurité, éteint par défaut) : le panneau sur
   `https://<machine>.<réseau>.ts.net`, les applications sur le même nom en `:8443`. Ce sont donc
-  deux origines distinctes, comme en local avec `9001` et `9002`. Ce que ça implique :
+  deux origines distinctes, comme en local avec `9001` et `9002`. Mais **toutes les applications
+  partagent `:8443`** : Funnel ne donne pas de sous-domaine par application (voir « Ce que CodeLab
+  ne protège pas »). Ce que ça implique :
   - le chiffrement va jusqu'au conteneur : c'est tailscaled qui termine le HTTPS, pas un tiers ;
   - `tailscaled` et `tailscale` tournent sous leur propre uid (`1002`), sans le groupe de
     `/workspace`, avec un environnement vide (aucun secret du panneau). Leur état est en `0700` ;
@@ -364,11 +368,14 @@ Sans lui, les réglages chiffrés deviennent illisibles.
   la connexion qu'impose la visibilité *Privée*. Une application aux données sensibles vérifie
   elle-même le jeton signé `X-CodeLab-Auth` (`codelab_auth.utilisateur`), qu'une autre
   application ne peut pas fabriquer.
-- **Sur le port des applications (sans VPS), toutes partagent une origine** (`:9002`). Un script
-  d'une application peut donc agir, au nom du visiteur, dans une autre application que ce visiteur
-  ouvre. Messages en fait partie depuis qu'elle est une application : un administrateur qui ouvre
-  une application hostile sur `:9002` lui expose sa boîte. Derrière le VPS, chaque application a son
-  sous-domaine, donc son origine.
+- **Sur le port des applications (sans VPS), toutes partagent une origine** (`:9002`, et `:8443`
+  par Tailscale Funnel). Un script d'une application peut donc agir, au nom du visiteur, dans une
+  autre application que ce visiteur ouvre : il pose les en-têtes qu'il veut (`X-Messages` compris),
+  et `SameSite` ne joue pas dans une même origine. Messages en fait partie depuis qu'elle est une
+  application : un administrateur qui ouvre une application hostile sur `:9002` ou `:8443` lui
+  expose sa boîte. Seul le VPS donne à chaque application son sous-domaine, donc son origine
+  ([`app-manager/vps/README.md`](app-manager/vps/README.md)) : c'est l'exposition à préférer dès
+  qu'une application n'est pas de toi.
 - **Derrière le VPS, tous les visiteurs d'Internet partagent une adresse** pour la limite des
   essais : cinq mauvais mots de passe, de qui que ce soit, suspendent les connexions distantes
   cinq minutes. C'est voulu : croire `X-Forwarded-For` permettrait de contourner la limite.

@@ -255,6 +255,39 @@ def test_une_page_d_un_autre_site_ne_fait_pas_agir_l_administrateur(boite):
     assert "h.set('X-Messages', '1');" in page
 
 
+def test_un_formulaire_d_une_application_voisine_n_ecrit_pas_au_nom_du_compte(
+        messagerie, appli_messages, monkeypatch):
+    """CSRF par /compte/ (audit du 2026-11-11, R1). Le proxy y laisse passer
+    l'administrateur, et derriere le VPS le cookie de session vaut pour tous
+    les sous-domaines : SameSite=Lax laisse passer un formulaire d'une
+    application voisine, qui est du meme site. Sans X-Messages, rien ne
+    s'ecrit ; le panneau, lui, pose l'en-tete sur ce qu'il relaie du hub."""
+    c, _partis = messagerie
+    jeton = {"X-CodeLab-Auth": app.jeton_signe(app.MESSAGERIE_NOM, "admin", "admin")}
+    nu = appli_messages.module.app.test_client()
+    r = nu.post("/compte/messages", headers=jeton, content_type="text/plain",
+                data='{"cible": "hub", "texte": "pose par un formulaire"}')
+    assert r.status_code == 403
+    r = nu.post("/compte/pieces", headers={**jeton, "X-Nom-Fichier": "capture.png"},
+                data=b"\x89PNG\r\n\x1a\n")
+    assert r.status_code == 403
+    assert _ranges() == []
+    # La lecture reste ouverte : un formulaire ne lit pas la reponse.
+    assert nu.get("/compte/messages", headers=jeton).status_code == 200
+
+    vus = []
+    transport = app._vers_messagerie
+
+    def espion(methode, chemin, entetes, corps):
+        vus.append((chemin, entetes.get("X-Messages")))
+        return transport(methode, chemin, entetes, corps)
+    monkeypatch.setattr(app, "_vers_messagerie", espion)
+    r = c.post("/api/messages", json={"cible": "hub", "texte": "Le hub écrit toujours."})
+    assert r.status_code == 200, r.data
+    assert ("/compte/messages", "1") in vus
+    assert [m["texte"] for m in _ranges()] == ["Le hub écrit toujours."]
+
+
 def test_un_message_inconnu_ne_fait_pas_semblant(boite):
     c, _ = boite
     assert c.delete("/api/messages/jamais-vu").status_code == 404

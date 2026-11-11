@@ -70,11 +70,14 @@ def appeler_messagerie(methode, chemin, corps=None, au_nom_du_compte=False, ente
     sinon celle du panneau, pour les routes /interne/.
     REGLE : 19 de SECURITE.md. Le cookie du panneau ne part jamais : seul le
     jeton signe, valable 60 secondes et pour cette audience seulement.
+    X-Messages : l'application refuse sans lui ce qui modifie sur /compte/
+    (CSRF, voir verifier_l_identite dans workspace/messages/app.py). Le
+    panneau le pose partout : inutile mais sans effet sur /interne/.
     """
     jeton = jeton_sso(MESSAGERIE_NOM) if au_nom_du_compte else jeton_du_panneau(MESSAGERIE_NOM)
     if not jeton:
         raise MessagerieIndisponible("aucune cle de signature")
-    h = {"X-CodeLab-Auth": jeton, **(entetes or {})}
+    h = {"X-CodeLab-Auth": jeton, "X-Messages": "1", **(entetes or {})}
     if corps is not None and not isinstance(corps, (bytes, bytearray)):
         corps = json.dumps(corps, ensure_ascii=False).encode("utf-8")
         h["Content-Type"] = "application/json"
