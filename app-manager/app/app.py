@@ -12667,10 +12667,13 @@ POLICES_DIR = os.path.dirname(os.path.abspath(__file__))
 def police(nom):
     """Un fichier de police, et rien d'autre.
 
-    La liste blanche est explicite : sans elle, ce chemin deviendrait une
-    lecture de fichier arbitraire des qu'un nom contient "..". Werkzeug
-    refuse deja les segments de ce genre, mais la garde ne doit pas dependre
-    d'un detail du routeur.
+    POURQUOI : les polices vivent a cote du code du panneau (POLICES_DIR est
+      le dossier d'app.py). Sans la liste blanche, /polices/app.py servirait
+      le source, et un nom avec ".." une lecture de fichier arbitraire.
+      Werkzeug refuse deja ces segments, mais la garde ne doit pas dependre
+      d'un detail du routeur.
+    DEPEND DE : POLICES_SERVIES, ecrit a la main ; le test
+      test_les_polices_ne_servent_que_les_polices.
     """
     if nom not in POLICES_SERVIES:
         return Response("Inconnu", status=404, mimetype="text/plain")

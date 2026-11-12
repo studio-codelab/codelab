@@ -835,6 +835,15 @@ def test_la_police_est_livree_avec_l_image():
         "une police redistribuee sans sa licence, c'est une licence violee")
 
 
+def test_les_polices_ne_servent_que_les_polices(client):
+    """Depuis le regroupement, les polices vivent a cote d'app.py : seule la
+    liste blanche empeche /polices/ de servir le code du panneau."""
+    assert client.get("/polices/manrope-latin.woff2").status_code == 200
+    for nom in ("app.py", "stockage.py", "dashboard.html", "LICENCE-manrope.txt",
+                "jakarta-latin.woff2", "..%2Fapp.py"):
+        assert client.get("/polices/" + nom).status_code == 404, nom
+
+
 # ---------- 23 quater. les accents ne debordent pas sur les identifiants ----------
 #
 # Signale par Lucas, et la cause est une campagne precedente : en accentuant
