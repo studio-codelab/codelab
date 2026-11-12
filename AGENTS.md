@@ -64,6 +64,7 @@ Ce qu'un agent ne fait **jamais** sans demande explicite :
 | `postgres/`, `redis/`, `mailpit/` | les services de données, avec leurs scripts d'entrée et de santé | — |
 | `workspace/` | ce qui est copié dans `/workspace` ; `workspace/diagnostic/` est l'application de diagnostic, `workspace/messages/` l'application Messages (sa base, son API, le relais du hub), et `workspace/diagnostic/tests/` la suite de tests du dépôt | — |
 | `.github/workflows/` | `build-images.yml` (images, actions épinglées par SHA), `securite.yml` (Trivy) | CI |
+| `.github/presentation/` | la présentation de CodeLab : `codelab.gif`, qui s'anime en tête du `README.md` (GitHub ne lit pas une vidéo du dépôt dans une page : il la sert en téléchargement), et `codelab.mp4`, la version avec le son ; hors des `paths` de la CI, elles ne reconstruisent aucune image | GitHub |
 
 Documentation de référence : [`README.md`](README.md) (installation),
 [`FONCTIONNALITES.md`](FONCTIONNALITES.md) (ce que voit l'utilisateur),
