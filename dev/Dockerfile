@@ -88,7 +88,8 @@ RUN npm install -g @openai/codex \
 
 # LA VIDEO DE PRESENTATION D'UN PROJET (« codelab video »), sans IA ni
 # service en ligne : Chromium (par Playwright) filme l'application, Piper
-# synthetise la voix off en francais sur le processeur, ffmpeg monte le tout.
+# synthetise la voix off en francais sur le processeur, habillage.mjs dessine
+# le titre, la fenetre et la musique, ffmpeg monte le tout.
 # Le scenario est du code du projet (video/scenario.mjs) ; le hub montre
 # ensuite video/presentation.mp4 sur la tuile de l'application.
 #
@@ -115,7 +116,11 @@ RUN pip install --no-cache-dir "piper-tts==${PIPER_VERSION}" \
            "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/medium/$f"; \
        done \
     && piper --help >/dev/null
-COPY dev/fabriquer.mjs dev/scenario-modele.mjs /usr/local/share/codelab/video/
+# L'habillage (habillage.mjs : titre anime, fenetre, sous-titres, musique
+# composee sur place) ecrit ses titres en Manrope, la police du panneau,
+# copiee a cote : aucune police chargee en ligne pendant le montage.
+COPY dev/fabriquer.mjs dev/scenario-modele.mjs dev/habillage.mjs /usr/local/share/codelab/video/
+COPY app-manager/app/manrope-latin.woff2 app-manager/app/LICENCE-manrope.txt /usr/local/share/codelab/video/
 
 COPY dev/entrypoint.sh /opt/codelab/dev/entrypoint.sh
 RUN chmod +x /opt/codelab/dev/entrypoint.sh

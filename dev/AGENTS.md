@@ -630,18 +630,26 @@ genereuse la ou elle compte. Six references, chacune pour une raison precise :
 
 Une video courte (30 s a 2 min) qui montre l'application en marche : le hub
 la propose sur la tuile du projet (bouton lecture) et dans sa fiche. Elle
-est FABRIQUEE, pas filmee a la main ni generee par une IA :
+est FABRIQUEE, pas filmee a la main ni generee par une IA, en une commande,
+dans le terminal de VS Code :
 
 ```bash
-codelab video            # dans le projet : pose video/scenario.mjs s'il manque
-codelab video            # une fois le scenario ecrit : tourne et monte la video
+codelab video            # dans le projet : tout, d'un geste
 ```
 
-`codelab video` joue `video/scenario.mjs` dans Chromium, filme, synthetise
-la voix off en francais (Piper, sur le processeur du poste) et monte le tout
-avec ffmpeg : carton titre, demonstration, carton de fin. Resultat :
-`video/presentation.mp4` et `video/affiche.jpg`, a versionner avec le projet.
-Rien ne part sur Internet.
+S'il manque, `video/scenario.mjs` est pose : un tour automatique (il ouvre
+l'application et la parcourt, sans jamais cliquer), qui donne deja une
+video. Puis `codelab video` joue le scenario dans Chromium, filme,
+synthetise la voix off en francais (Piper, sur le processeur du poste),
+l'habille comme une pub -- titre anime, l'application dans une fenetre sur
+un fond vivant, la phrase de chaque etape en sous-titre, carton de fin,
+musique composee sur place et effacee sous la voix -- et monte le tout avec
+ffmpeg. Resultat : `video/presentation.mp4` et `video/affiche.jpg`, a
+versionner avec le projet. Quelques minutes. Rien ne part sur Internet.
+
+**Quand on te demande la video** : remplace le tour automatique par une vraie
+demonstration (les deux ou trois gestes qui montrent a quoi sert
+l'application, chacun avec sa phrase), puis lance `codelab video`.
 
 **Le scenario est du code du projet**, a ecrire et tenir a jour comme le
 reste. Le format :
@@ -649,7 +657,7 @@ reste. Le format :
 ```js
 export default {
   titre: "Nom affiche",
-  accroche: "Une phrase : a quoi sert l'application.",
+  accroche: "Une phrase : a quoi sert l'application.",   // "" : la description de la tuile
   adresse: "http://codelab-app-manager:9002/<adresse>/",
   taille: { largeur: 1600, hauteur: 900 },     // 16:9
   etapes: [
@@ -670,14 +678,21 @@ export default {
   l'utilisateur y gagne -- pas ce que fait le code.
 - Outils du geste : `page` (Playwright), `cliquer(selecteur)`,
   `taper(selecteur, texte)`, `survoler(selecteur)`, `defiler(pixels)`,
-  `pause(secondes)`. Le curseur est dessine et se deplace jusqu'a chaque
+  `pause(secondes)`, `visiter()` (parcourt la page, d'un ecran a l'autre,
+  sans cliquer). Le curseur est dessine et se deplace jusqu'a chaque
   element avant le clic.
+- La phrase de chaque etape s'affiche aussi en sous-titre : la video se
+  comprend sans le son. `voix: ""` : ni voix ni sous-titre pour l'etape.
 - Des selecteurs stables (`#id`, `[data-...]`, roles) ; jamais de clic par
   coordonnees.
 - Des donnees de demonstration credibles, jamais de vraies donnees
   personnelles ni de secret a l'ecran.
-- `voix: false` a la racine : video muette. `video/musique.mp3` : une musique
-  libre de droits passe doucement sous la voix.
+- `voix: false` a la racine : pas de voix off (les sous-titres restent).
+  La musique est composee pour chaque video ; `video/musique.mp3` (libre de
+  droits) la remplace, `musique: false` la retire.
+- `couleur: "#rrggbb"` a la racine : la couleur d'accent de l'habillage
+  (lueurs du fond, degrade du titre) ; par defaut, le turquoise de CodeLab.
+  `fond: "#rrggbb"` : la teinte de base du fond (sombre de preference).
 - **Application privee** : filme-la PAR LE HUB, comme dans l'exemple
   (`http://codelab-app-manager:9002/<adresse>/`). `codelab video` la demarre
   par le panneau si elle est arretee, et y obtient un laissez-passer : dix

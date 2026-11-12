@@ -14632,9 +14632,14 @@ def _delivrer_un_ticket(n):
     _tournage_tickets[ticket] = (n, time.time() + TOURNAGE_TICKET_TTL)
     journaliser("tournage", app=n, ip=_adresse_client())
     # Le nom affiche (casse et espaces), pour les cartons de la video :
-    # « wine-manager » est une adresse, « Wine Manager » un nom.
+    # « wine-manager » est une adresse, « Wine Manager » un nom. La
+    # description, pour l'accroche du carton titre quand le scenario n'en
+    # donne pas (vecu : « que chaque application puisse creer une video
+    # facilement » -- le scenario automatique n'a rien a remplir). Elle
+    # s'affiche deja sur la tuile du hub : rien de nouveau ne sort.
+    a = load().get(n) or {}
     return jsonify({"ticket": ticket, "duree": TOURNAGE_DUREE, "demarree": demarree, "app": n,
-                    "titre": titre_de(n, load().get(n))})
+                    "titre": titre_de(n, a), "description": a.get("description") or ""})
 
 
 @flask_app.route("/api/tournage/<n>", methods=["POST"])

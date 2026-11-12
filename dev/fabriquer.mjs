@@ -3,9 +3,11 @@
 // Lance par « codelab video <projet> ». Lit video/scenario.mjs dans le
 // projet, le joue dans un vrai navigateur (Chromium, par Playwright) en
 // filmant l'ecran, synthetise la voix off en local (Piper, si elle est
-// installee), puis monte le tout avec ffmpeg :
+// installee), l'habille (habillage.mjs) puis monte le tout avec ffmpeg :
 //
-//   ecran titre  ->  la demonstration filmee  ->  ecran de fin
+//   titre anime  ->  la demonstration, dans une fenetre sur fond vivant,
+//                    sous-titree  ->  carton de fin ; musique composee sur
+//                    place (ou video/musique.mp3), effacee sous la voix
 //
 // Sorties, dans le dossier video/ du projet :
 //   presentation.mp4   H.264 + AAC, 1920x1080, lisible partout (faststart)
@@ -19,14 +21,15 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { DUREE_FIN, DUREE_INTRO, IPS, POS_FOND_FFMPEG, composer, pieces, preparer, sousTitres, titreEtFin }
+  from "./habillage.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 
-const LARGEUR = 1920, HAUTEUR = 1080, IPS = 30;
-const DUREE_TITRE = 3.5, DUREE_FIN = 3, FONDU = 0.5;
+const OUTILS = fileURLToPath(new URL(".", import.meta.url));
 const VOIX = process.env.CODELAB_VOIX || "/usr/local/share/codelab/voix/fr_FR-siwis-medium.onnx";
 
 function dire(texte) { console.log(`[codelab video] ${texte}`); }
@@ -58,9 +61,6 @@ function lancer(cmd, args, options = {}) {
 function duree(fichier) {
   return parseFloat(lancer("ffprobe", ["-v", "error", "-show_entries", "format=duration",
                                        "-of", "default=nw=1:nk=1", fichier]).trim()) || 0;
-}
-function echapper(t) {
-  return String(t ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 const attendre = s => new Promise(r => setTimeout(r, Math.max(0, s) * 1000));
 
@@ -120,6 +120,13 @@ const FICHIER_CLE = process.env.CODELAB_TOURNAGE_FICHIER || join(homedir(), ".co
 // (« wine-manager ») dans le titre, le carton de fin et la voix ; le panneau,
 // lui, connait le nom affiche (« Wine Manager »). Seuls les noms techniques
 // sont remplaces : un titre choisi a la main reste tel quel.
+// L'ACCROCHE PAR DEFAUT. Le scenario automatique la laisse vide : la
+// description de l'application au panneau (celle de sa tuile) la remplit.
+// Une accroche ecrite a la main reste.
+function prendreLaDescription(description) {
+  if (!scenario.accroche && description) scenario.accroche = String(description).slice(0, 140);
+}
+
 function prendreLeVraiNom(titre, techniques) {
   if (!titre) return;
   const noms = [...new Set(techniques.filter(n => n && n !== titre))];
@@ -176,6 +183,7 @@ async function demanderLaissezPasser(adresse) {
     }
     if (d.demarree) dire("application demarree par le panneau pour le tournage.");
     prendreLeVraiNom(d.titre, [nom, d.app, basename(dossier)]);
+    prendreLaDescription(d.description);
     return d.ticket;
   } catch (e) {
     dire(`pas de laissez-passer : le panneau ne repond pas (${e.message}).`);
@@ -206,30 +214,9 @@ try {
     voix.push({ wav, duree: duree(wav) });
   }
 
-  // --------------------- 2. les ecrans de titre et de fin ---------------------
-  // Dessines par le navigateur (une page HTML, la police du systeme) plutot
-  // qu'avec le texte de ffmpeg : accents, retours a la ligne et typographie
-  // propres sans rien regler.
   const navigateur = await chromium.launch();
-  const ecran = async (nom, titre, sous) => {
-    const page = await navigateur.newPage({ viewport: { width: LARGEUR, height: HAUTEUR } });
-    await page.setContent(`<!doctype html><meta charset="utf-8"><style>
-      html,body{margin:0;height:100%}
-      body{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:26px;
-        background:${scenario.fond || "#0f1720"};color:#fff;
-        font-family:-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;text-align:center}
-      h1{margin:0;font-size:118px;font-weight:800;letter-spacing:-.04em;max-width:1600px;line-height:1.02}
-      p{margin:0;font-size:44px;opacity:.72;max-width:1400px;line-height:1.3}
-      </style><h1>${echapper(titre)}</h1>${sous ? `<p>${echapper(sous)}</p>` : ""}`);
-    const png = join(travail, `${nom}.png`);
-    await page.screenshot({ path: png });
-    await page.close();
-    return png;
-  };
-  const titrePng = await ecran("titre", scenario.titre || "", scenario.accroche || "");
-  const finPng = await ecran("fin", scenario.fin?.titre || scenario.titre || "", scenario.fin?.texte || "");
 
-  // ------------------------------ 3. le tournage ------------------------------
+  // ------------------------------ 2. le tournage ------------------------------
   dire(`tournage de ${scenario.etapes.length} etape(s) sur ${scenario.adresse || "(adresse absente)"}...`);
   const contexte = await navigateur.newContext({
     viewport: taille, deviceScaleFactor: 1, locale: "fr-FR",
@@ -273,8 +260,18 @@ try {
       addEventListener("mouseup", () => { c.style.background = "rgba(20,20,20,.35)"; }, true);
     });
   });
+  // LE FILM COMMENCE SUR LA PAGE CHARGEE. L'enregistrement part a la
+  // creation de la page, sur une page blanche : le titre se terminerait sur
+  // une fenetre vide. On charge l'adresse d'abord, et le montage coupe tout
+  // ce qui precede (coupe, en secondes).
+  const naissance = Date.now();
   const page = await contexte.newPage();
+  if (scenario.adresse) {
+    await page.goto(scenario.adresse, { waitUntil: "load" }).catch(() => {});
+    await attendre(0.5);
+  }
   const debutFilm = Date.now();
+  const coupe = (debutFilm - naissance) / 1000;
   const outils = {
     page,
     pause: attendre,
@@ -301,6 +298,32 @@ try {
       const b = await page.locator(selecteur).first().boundingBox();
       if (b) await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 28 });
     },
+    // LE TOUR AUTOMATIQUE (le scenario modele). Vecu : « que chaque
+    // application puisse creer une video facilement » -- sans scenario a
+    // ecrire, la video montre quand meme l'application. On parcourt la
+    // page d'un ecran a l'autre, puis on remonte ; une page qui tient sur
+    // un ecran voit le curseur passer sur ses liens et boutons. JAMAIS de
+    // clic : un tour automatique ne doit rien creer, rien supprimer.
+    visiter: async ({ ecrans = 5, pause = 1.4 } = {}) => {
+      await attendre(pause);
+      const hauteur = await page.evaluate(() => Math.max(document.documentElement.scrollHeight,
+        document.body ? document.body.scrollHeight : 0));
+      const pas = Math.round(taille.height * 0.7);
+      const n = Math.min(ecrans, Math.ceil(Math.max(0, hauteur - taille.height) / pas));
+      if (n > 0) {
+        for (let i = 0; i < n; i++) { await outils.defiler(pas); await attendre(pause); }
+        await outils.defiler(-pas * n);
+        await attendre(pause * 0.7);
+        return;
+      }
+      const cibles = await page.locator("a:visible, button:visible, [role=button]:visible").all();
+      for (const c of cibles.slice(0, 4)) {
+        const b = await c.boundingBox().catch(() => null);
+        if (!b || b.y > taille.height || b.x > taille.width) continue;
+        await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 32 });
+        await attendre(pause * 0.8);
+      }
+    },
   };
   const reperes = [];
   for (const [i, etape] of scenario.etapes.entries()) {
@@ -319,44 +342,103 @@ try {
   await contexte.close();
   await navigateur.close();
 
+  // ------------------------------ 3. l'habillage ------------------------------
+  // Le titre et la fin, dessines image par image ; pour la demonstration,
+  // des images fixes (fond, cadre, masque, sous-titres) que ffmpeg compose.
+  // Voir habillage.mjs.
+  dire("habillage (titre anime, fenetre, sous-titres, musique)...");
+  const dureeDemo = Math.max(1, duree(filmBrut) - coupe);
+  const o = preparer({ scenario, adresse: scenario.adresse, dossierOutils: OUTILS });
+  const image = (t, nom) => {
+    const png = join(travail, nom);
+    lancer("ffmpeg", ["-y", "-loglevel", "error", "-ss", String(Math.max(0, t)), "-i", filmBrut,
+                      "-frames:v", "1", "-vf", `scale=${o.f.w}:${o.f.h}`, png]);
+    return png;
+  };
+  const premiere = image(coupe + 0.05, "premiere.png");
+  const derniere = image(coupe + dureeDemo - 0.2, "derniere.png");
+  const habits = await (async () => {
+    const nav = await chromium.launch();
+    try {
+      const fixes = await pieces(nav, o, travail);
+      // Un sous-titre par etape qui parle : de son debut au debut de la
+      // suivante. La video se comprend aussi sans le son.
+      const phrases = scenario.etapes.map(e => (typeof e.voix === "string" ? e.voix.trim() : ""));
+      const sous = await sousTitres(nav, o, phrases, travail);
+      const films = await titreEtFin(nav, o, { premiere, derniere, dureeDemo, dossier: travail });
+      return { ...fixes, sous, ...films };
+    } finally {
+      await nav.close();
+    }
+  })();
+
   // ------------------------------ 4. le montage ------------------------------
   dire("montage...");
-  const echelle = `scale=${LARGEUR}:${HAUTEUR}:force_original_aspect_ratio=decrease,` +
-    `pad=${LARGEUR}:${HAUTEUR}:(ow-iw)/2:(oh-ih)/2:color=0x0f1720,fps=${IPS},format=yuv420p,setsar=1`;
-  const dureeDemo = duree(filmBrut);
+  const total = DUREE_INTRO + dureeDemo + DUREE_FIN;
+  const entrees = ["-i", habits.intro, "-i", filmBrut, "-i", habits.fin];
+  const fixe = f => ["-loop", "1", "-framerate", String(IPS), "-t", String(dureeDemo), "-i", f];
+  entrees.push(...fixe(habits.fond), ...fixe(habits.cadre), ...fixe(habits.masque));
+  const n = () => entrees.filter(x => x === "-i").length - 1;
   const filtres = [
-    `[0:v]${echelle},fade=t=in:st=0:d=${FONDU},fade=t=out:st=${DUREE_TITRE - FONDU}:d=${FONDU}[t]`,
-    `[1:v]${echelle},fade=t=in:st=0:d=${FONDU},fade=t=out:st=${Math.max(0, dureeDemo - FONDU)}:d=${FONDU}[d]`,
-    `[2:v]${echelle},fade=t=in:st=0:d=${FONDU},fade=t=out:st=${DUREE_TITRE - FONDU}:d=${FONDU}[f]`,
-    "[t][d][f]concat=n=3:v=1:a=0[v]",
+    `[1:v]trim=start=${coupe},setpts=PTS-STARTPTS,fps=${IPS},scale=${o.f.w}:${o.f.h},format=yuva420p[film]`,
+    `[5:v]format=gray,scale=${o.f.w}:${o.f.h}[coins]`,
+    "[film][coins]alphamerge[contenu]",
+    `[3:v]crop=1920:1080:${POS_FOND_FFMPEG},format=yuva420p[fond]`,
+    "[fond][4:v]overlay=0:0[cadre]",
+    `[cadre][contenu]overlay=${o.f.x}:${o.f.contenuY}:eof_action=repeat[d0]`,
   ];
-  const entrees = ["-loop", "1", "-t", String(DUREE_TITRE), "-i", titrePng,
-                   "-i", filmBrut,
-                   "-loop", "1", "-t", String(DUREE_FIN), "-i", finPng];
-  // Les voix, chacune a l'instant ou son etape commence (apres l'ecran titre).
+  let courant = "d0";
+  habits.sous.forEach((png, i) => {
+    if (!png) return;
+    const a = reperes[i] + 0.1;
+    const b = Math.max(a + 0.6, (i + 1 < reperes.length ? reperes[i + 1] : dureeDemo) - 0.1);
+    entrees.push(...fixe(png));
+    filtres.push(`[${n()}:v]format=yuva420p,fade=t=in:st=${a}:d=0.25:alpha=1,` +
+                 `fade=t=out:st=${b - 0.25}:d=0.25:alpha=1[s${i}]`,
+                 `[${courant}][s${i}]overlay=0:0[d${i + 1}]`);
+    courant = `d${i + 1}`;
+  });
+  filtres.push(`[${courant}]trim=duration=${dureeDemo},format=yuv420p,setsar=1[demo]`,
+               "[0:v]format=yuv420p,setsar=1[intro]", "[2:v]format=yuv420p,setsar=1[fin]",
+               "[intro][demo][fin]concat=n=3:v=1:a=0[v]");
+  // Les voix, chacune a l'instant ou son etape commence (apres le titre).
   const pistes = [];
   voix.forEach((v, i) => {
     if (!v) return;
     entrees.push("-i", v.wav);
-    const n = entrees.filter(x => x === "-i").length - 1;
-    const ms = Math.round((DUREE_TITRE + reperes[i] + 0.2) * 1000);
-    filtres.push(`[${n}:a]aresample=48000,adelay=${ms}|${ms},aformat=channel_layouts=stereo[a${i}]`);
+    const ms = Math.round((DUREE_INTRO + reperes[i] + 0.2) * 1000);
+    filtres.push(`[${n()}:a]aresample=48000,adelay=${ms}|${ms},aformat=channel_layouts=stereo[a${i}]`);
     pistes.push(`[a${i}]`);
   });
-  // Une musique, si le projet en fournit une (video/musique.mp3) : bas, sous
-  // la voix, et en fondu a la fin.
-  const total = DUREE_TITRE + dureeDemo + DUREE_FIN;
-  const musique = join(sortie, "musique.mp3");
-  if (existsSync(musique)) {
-    entrees.push("-stream_loop", "-1", "-i", musique);
-    const n = entrees.filter(x => x === "-i").length - 1;
-    filtres.push(`[${n}:a]aresample=48000,volume=${pistes.length ? 0.12 : 0.5},atrim=0:${total},` +
-                 `afade=t=out:st=${Math.max(0, total - 2)}:d=2,aformat=channel_layouts=stereo[m]`);
-    pistes.push("[m]");
+  if (pistes.length) filtres.push(`${pistes.join("")}amix=inputs=${pistes.length}:normalize=0,` +
+                                  `apad,atrim=0:${total}[voix]`);
+  // La musique : celle du projet (video/musique.mp3), sinon composee pour
+  // cette video ; « musique: false » dans le scenario, aucune. Sous la voix,
+  // elle s'efface d'elle-meme (sidechaincompress) et revient entre les
+  // phrases.
+  const musiqueProjet = join(sortie, "musique.mp3");
+  let musique = null;
+  if (scenario.musique !== false) {
+    if (existsSync(musiqueProjet)) {
+      entrees.push("-stream_loop", "-1", "-i", musiqueProjet);
+    } else {
+      entrees.push("-i", composer(join(travail, "musique.wav"), total));
+    }
+    filtres.push(`[${n()}:a]aresample=48000,aformat=channel_layouts=stereo,volume=${pistes.length ? 0.55 : 0.85},` +
+                 `atrim=0:${total},afade=t=out:st=${Math.max(0, total - 2)}:d=2[mus]`);
+    musique = "[mus]";
   }
-  const sansSon = !pistes.length;
-  if (!sansSon) filtres.push(`${pistes.join("")}amix=inputs=${pistes.length}:normalize=0,` +
-                             `apad,atrim=0:${total}[a]`);
+  let son = null;
+  if (pistes.length && musique) {
+    filtres.push("[voix]asplit=2[voix1][voix2]",
+                 "[mus][voix2]sidechaincompress=threshold=0.04:ratio=6:attack=20:release=450[musbas]",
+                 "[voix1][musbas]amix=inputs=2:normalize=0[a]");
+    son = "[a]";
+  } else if (pistes.length || musique) {
+    filtres.push(`${pistes.length ? "[voix]" : musique}anull[a]`);
+    son = "[a]";
+  }
+  const sansSon = !son;
   const fichierMp4 = join(travail, "presentation.mp4");
   // DEUX FILS, PAS UN PAR COEUR. Vecu : « ffmpeg a echoue : », sans un mot.
   // ffmpeg compte les coeurs de l'HOTE, pas les 1,5 CPU du conteneur, et
@@ -365,13 +447,13 @@ try {
   // serveur, il depassait le mem_limit de codelab-dev (1280 Mo) et le noyau
   // le tuait. Deux fils suffisent a 1,5 CPU : rien de plus lent.
   lancer("ffmpeg", ["-y", "-loglevel", "error", "-filter_complex_threads", "2", ...entrees,
-    "-filter_complex", filtres.join(";"), "-map", "[v]", ...(sansSon ? [] : ["-map", "[a]"]),
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-threads", "2",
-    ...(sansSon ? [] : ["-c:a", "aac", "-b:a", "160k"]),
+    "-filter_complex", filtres.join(";"), "-map", "[v]", ...(sansSon ? [] : ["-map", son]),
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-threads", "2",
+    ...(sansSon ? [] : ["-c:a", "aac", "-b:a", "192k"]),
     "-movflags", "+faststart", "-t", String(total), fichierMp4]);
-  // L'affiche : une image de la demonstration, pas l'ecran titre.
+  // L'affiche : une image de la demonstration, pas le titre.
   const fichierJpg = join(travail, "affiche.jpg");
-  lancer("ffmpeg", ["-y", "-loglevel", "error", "-ss", String(DUREE_TITRE + Math.min(2, dureeDemo / 2)),
+  lancer("ffmpeg", ["-y", "-loglevel", "error", "-ss", String(DUREE_INTRO + Math.min(2, dureeDemo / 2)),
                     "-i", fichierMp4, "-frames:v", "1", "-q:v", "3", fichierJpg]);
   // En dernier, et d'un coup : le hub ne voit jamais une video a moitie
   // ecrite. Copie a cote, puis renommage (le dossier temporaire peut etre

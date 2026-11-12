@@ -85,11 +85,15 @@ HELP
     video) cat <<'HELP'
 codelab video [project]
 
-  The project's presentation video, shown by the hub on its page.
-  First run: writes video/scenario.mjs, to fill in (or to have your agent
-             write: section 14 of the AGENTS.md manual).
-  Then     : plays the scenario in Chromium, adds the French voice-over
-             and produces video/presentation.mp4 and video/affiche.jpg.
+  The project's presentation video, shown by the hub on its page. One
+  command, nothing to fill in first:
+    - writes video/scenario.mjs if missing: an automatic tour of the app
+      (refine it later, or have your agent do it: section 14 of AGENTS.md);
+    - plays the scenario in Chromium, adds the French voice-over, an
+      animated title, the app in a window with subtitles, an end card and
+      locally composed music;
+    - produces video/presentation.mp4 and video/affiche.jpg.
+  No argument: the project of the current folder (the VS Code terminal).
 HELP
     ;;
     db) cat <<'HELP'
@@ -627,15 +631,21 @@ cmd_video() {
   fi
   [ -d "$projet" ] || { echo "codelab video: $projet n'existe pas." >&2; exit 1; }
   nom=$(basename "$projet")
+  # UN SEUL GESTE. Vecu : « que chaque application puisse creer une video
+  # facilement depuis VS Code » (au terminal : les raccourcis VS Code ont
+  # ete retires a la demande). Le premier lancement s'arretait sur un
+  # scenario a remplir ; le modele marche desormais tel quel (il ouvre
+  # l'application et la parcourt) : il est pose, PUIS tourne aussitot. Un
+  # scenario existant n'est jamais reecrit.
   if [ ! -f "$projet/video/scenario.mjs" ]; then
     mkdir -p "$projet/video"
     sed -e "s/__TITRE__/$nom/g" -e "s#__ADRESSE__#${CODELAB_VIDEO_ADRESSE:-http://codelab-app-manager:9002}/$nom/#g" \
         "$VIDEO_OUTILS/scenario-modele.mjs" > "$projet/video/scenario.mjs"
-    echo "[codelab] $projet/video/scenario.mjs cree : decris-y ce que la video montre"
-    echo "[codelab] (ou demande-le a ton agent), puis relance « codelab video $nom »."
-    return 0
+    echo "[codelab] $projet/video/scenario.mjs cree : un tour automatique de l'application."
+    echo "[codelab] Pour une vraie demonstration, decris-y les gestes (ou demande-le a ton"
+    echo "[codelab] agent : section 14 du AGENTS.md), puis relance « codelab video »."
   fi
-  echo "[codelab] video de $nom : tournage et montage (une a deux minutes)..."
+  echo "[codelab] video de $nom : tournage, habillage et montage (quelques minutes)..."
   # Chromium est installe dans l'image, a cote de Playwright. Le Dockerfile
   # le dit par « ENV PLAYWRIGHT_BROWSERS_PATH », mais une session SSH (et
   # donc le terminal de VS Code) ne recoit pas l'environnement du conteneur.
