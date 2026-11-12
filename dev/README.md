@@ -56,7 +56,7 @@ leur nom (`codelab-postgres`, `codelab-app-manager`…).
 | `… --sans-db` (`--no-db`) | sans la base |
 | `codelab update [projet]` | remet un projet existant au niveau de la stack, sans rien effacer : réécrit le bloc du manuel dans `AGENTS.md`, pose `CLAUDE.md` s'il manque, ajoute les modules manquants et remplace ceux que git garde intacts (une copie modifiée reste), ajoute `.env` et `.dagster-venv/` au `.gitignore`, crée la base si elle manque. Sans nom : le projet du dossier courant |
 | `… --tous` (`--all`) | chaque projet de `/workspace` qui porte le manuel CodeLab |
-| `codelab video [projet]` | la vidéo de présentation : pose `video/scenario.mjs` s'il manque, sinon le joue dans Chromium, ajoute la voix off (Piper, en français, hors ligne) et monte `video/presentation.mp4` et `video/affiche.jpg` avec ffmpeg. Filmée par le hub, une application privée s'ouvre sans connexion, et démarre si elle est arrêtée (une adresse locale muette passe d'elle-même par le hub, et le panneau retrouve l'application par le dossier du projet, quel que soit son nom) : un laissez-passer de tournage obtenu avec `~/.codelab-tournage` (la clé que le poste recopie du panneau, `0600`). Une application qui montre encore son propre formulaire de connexion arrête le tournage avant de filmer : elle doit brancher `codelab_auth`. Voir les sections 9 et 14 du manuel |
+| `codelab video [projet]` | la vidéo de présentation, en un geste : pose `video/scenario.mjs` s'il manque (un tour automatique de l'application, sans rien à remplir), puis le joue dans Chromium, ajoute la voix off (Piper, en français, hors ligne), l'habille (`habillage.mjs` : titre animé, application dans une fenêtre sur fond vivant, sous-titres, carton de fin, musique composée sur place) et monte `video/presentation.mp4` et `video/affiche.jpg` avec ffmpeg. Sans nom : le projet du dossier courant (le terminal de VS Code). Filmée par le hub, une application privée s'ouvre sans connexion, et démarre si elle est arrêtée (une adresse locale muette passe d'elle-même par le hub, et le panneau retrouve l'application par le dossier du projet, quel que soit son nom) : un laissez-passer de tournage obtenu avec `~/.codelab-tournage` (la clé que le poste recopie du panneau, `0600`). Une application qui montre encore son propre formulaire de connexion arrête le tournage avant de filmer : elle doit brancher `codelab_auth`. Voir les sections 9 et 14 du manuel |
 | `codelab help [commande]` | l'aide (en anglais) ; avec un nom, le détail de la commande ; `codelab` seul l'affiche aussi |
 | `codelab db <nom>` | la base seule : `<nom>`, son compte, son schéma `dagster` et le `search_path` (idempotent), par le gardien des bases ; appelée par `create` et `update` |
 | `codelab vscode-bases` | les connexions SQLTools (voir plus bas) ; appelée par `create`, `update` et le poste |
@@ -179,7 +179,8 @@ code (le tien, ou celui d'un agent) n'a pas à pouvoir le faire.
 | `codelab` | l'outil de projet |
 | `AGENTS.md` | le manuel des projets, livré dans l'image |
 | `codelab_auth.py`, `codelab_web.py`, `codelab-auth.js`, `codelab-web.js` | les modules déposés par `codelab create` et tenus à jour par `codelab update` |
-| `fabriquer.mjs`, `scenario-modele.mjs` | le tournage et le montage de `codelab video`, et le modèle de scénario |
+| `fabriquer.mjs`, `habillage.mjs`, `scenario-modele.mjs` | le tournage et le montage de `codelab video`, son habillage (titre, fenêtre, sous-titres, musique) et le modèle de scénario |
+| `manrope-latin.woff2`, `LICENCE-manrope.txt` | la police des titres des vidéos, copiée du panneau (rien n'est chargé en ligne) |
 
 | Variable (compose) | Rôle |
 |---|---|

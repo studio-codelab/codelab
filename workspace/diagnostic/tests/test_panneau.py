@@ -2485,21 +2485,138 @@ def test_le_hub_porte_le_lecteur_de_video():
 
 
 
-def test_codelab_video_pose_un_scenario_a_completer(tmp_path):
+def test_codelab_video_pose_le_scenario_puis_tourne_d_un_seul_geste(tmp_path):
+    """Vecu : « que chaque application puisse creer une video facilement
+    depuis VS Code » -- au terminal, les raccourcis VS Code ayant ete retires
+    a la demande. Le premier lancement s'arretait sur un scenario a remplir :
+    il le pose desormais (un tour automatique, rien a completer), PUIS
+    tourne dans la foulee. Un scenario existant n'est jamais reecrit."""
+    faux = tmp_path / "faux-node"
+    faux.mkdir()
+    trace = tmp_path / "appels.txt"
+    (faux / "node").write_text('#!/bin/sh\necho "$@" >> "' + str(trace) + '"\n')
+    (faux / "node").chmod(0o755)
     outils = os.path.join(_racine_depot(), "dev")
     (tmp_path / "ws" / "mon-site").mkdir(parents=True)
-    r, espace = _lancer_codelab(tmp_path, ["video", "mon-site"],
-                                {"CODELAB_VIDEO_OUTILS": outils})
+    env = {"CODELAB_VIDEO_OUTILS": outils, "PATH": f"{faux}{os.pathsep}{os.environ['PATH']}"}
+    r, espace = _lancer_codelab(tmp_path, ["video", "mon-site"], env)
     assert r.returncode == 0, r.stderr
     scenario = (espace / "mon-site" / "video" / "scenario.mjs").read_text(encoding="utf-8")
     assert "__" not in scenario
     assert 'titre: "mon-site"' in scenario
     assert "/mon-site/" in scenario
-    # Relancee sans scenario modifie, la commande ne l'ecrase pas : elle tourne.
+    # Rien a remplir : l'accroche vient du panneau, la visite est automatique.
+    assert 'accroche: ""' in scenario and "await visiter()" in scenario
+    assert "Décris ici" not in scenario
+    # Et le tournage part aussitot, sur ce projet.
+    appels = trace.read_text().splitlines()
+    assert len(appels) == 1 and appels[0].endswith(f"fabriquer.mjs {espace / 'mon-site'}"), appels
+    # Relancee, la commande ne l'ecrase pas : elle tourne.
     (espace / "mon-site" / "video" / "scenario.mjs").write_text("// a moi\n")
-    _lancer_codelab(tmp_path, ["video", "mon-site"],
-                    {"CODELAB_VIDEO_OUTILS": str(tmp_path / "rien")})
+    _lancer_codelab(tmp_path, ["video", "mon-site"], env)
     assert (espace / "mon-site" / "video" / "scenario.mjs").read_text() == "// a moi\n"
+    assert len(trace.read_text().splitlines()) == 2
+
+
+
+
+def test_le_tour_automatique_ne_clique_jamais():
+    """Le scenario modele parcourt l'application sans qu'on l'ait regardee :
+    un clic pourrait creer ou supprimer quelque chose. visiter() defile et
+    survole, il ne clique pas."""
+    source = open(os.path.join(_racine_depot(), "dev", "fabriquer.mjs"), encoding="utf-8").read()
+    visiter = source[source.index("    visiter: async"):source.index("\n  };", source.index("    visiter: async"))]
+    assert ".click(" not in visiter and "cliquer(" not in visiter and "taper(" not in visiter
+    assert "mouse.down" not in visiter and "keyboard" not in visiter
+
+
+
+
+def test_l_accroche_vide_prend_la_description_de_l_application(tmp_path):
+    """Le scenario automatique laisse l'accroche vide : la description de
+    la tuile (renvoyee avec le laissez-passer) la remplit. Une accroche ecrite
+    a la main reste."""
+    import shutil
+    import subprocess
+    if not shutil.which("node"):
+        pytest.skip("node absent")
+    source = open(os.path.join(_racine_depot(), "dev", "fabriquer.mjs"), encoding="utf-8").read()
+    fonction = source[source.index("function prendreLaDescription"):source.index("function prendreLeVraiNom")]
+    essai = tmp_path / "essai.mjs"
+    essai.write_text("let scenario;\n" + fonction + """
+const sorties = [];
+scenario = {accroche: ""}; prendreLaDescription("Tes bouteilles, rangées"); sorties.push(scenario.accroche);
+scenario = {accroche: "À moi"}; prendreLaDescription("Tes bouteilles"); sorties.push(scenario.accroche);
+scenario = {}; prendreLaDescription(""); sorties.push(scenario.accroche ?? null);
+console.log(JSON.stringify(sorties));
+""", encoding="utf-8")
+    r = subprocess.run(["node", str(essai)], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    import json as _json
+    assert _json.loads(r.stdout) == ["Tes bouteilles, rangées", "À moi", None]
+
+
+
+
+def _habillage(tmp_path, code):
+    """Joue du code contre dev/habillage.mjs (sans navigateur)."""
+    import shutil
+    import subprocess
+    if not shutil.which("node"):
+        pytest.skip("node absent")
+    module = os.path.join(_racine_depot(), "dev", "habillage.mjs")
+    essai = tmp_path / "essai.mjs"
+    essai.write_text(f"import * as h from {_json_module(module)};\n" + code, encoding="utf-8")
+    r = subprocess.run(["node", str(essai)], capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    return r.stdout
+
+
+def _json_module(chemin):
+    import json as _json
+    import pathlib
+    return _json.dumps(pathlib.Path(chemin).as_uri())
+
+
+def test_l_habillage_pose_l_application_dans_l_image_et_le_fond_ne_saute_pas(tmp_path):
+    """Le titre et la fin sont dessines par Chromium, la demonstration est
+    composee par ffmpeg : les deux doivent poser la fenetre au meme endroit
+    et le fond a la meme position, sinon les raccords sautent. La fenetre
+    tient dans l'image quelle que soit la taille filmee (16:9, telephone),
+    en dimensions paires (yuv420p)."""
+    import json as _json
+    sortie = _habillage(tmp_path, """
+const tailles = [undefined, {largeur: 1600, hauteur: 900}, {largeur: 390, hauteur: 844}, {largeur: 1280, hauteur: 1024}];
+const fenetres = tailles.map(t => h.fenetre(t));
+// L'expression de ffmpeg, evaluee en JS, contre la formule du titre et de la fin.
+const [ex, ey] = h.POS_FOND_FFMPEG.match(/x='([^']+)':y='([^']+)'/).slice(1)
+  .map(e => new Function("t", "return " + e.replace(/sin/g, "Math.sin")));
+const ecarts = [-5, 0, 3.3, 17, 60].map(t => Math.abs(ex(t) - h.posFond(t).x) + Math.abs(ey(t) - h.posFond(t).y));
+console.log(JSON.stringify({fenetres, ecarts, L: h.LARGEUR, H: h.HAUTEUR}));
+""")
+    d = _json.loads(sortie)
+    for f in d["fenetres"]:
+        assert f["w"] % 2 == 0 and f["h"] % 2 == 0, f
+        assert 0 <= f["x"] and f["x"] + f["w"] <= d["L"], f
+        assert 0 <= f["y"] < f["contenuY"] and f["contenuY"] + f["h"] <= d["H"], f
+    assert max(d["ecarts"]) < 1e-9, d["ecarts"]
+
+
+def test_la_musique_est_composee_sur_place_a_la_bonne_duree(tmp_path):
+    """Aucune musique a telecharger ni de droits a verifier : habillage.mjs
+    la compose pour chaque video, a la duree exacte du montage, en WAV 16
+    bits stereo, sans saturer."""
+    import wave
+    wav = tmp_path / "m.wav"
+    import json as _json
+    _habillage(tmp_path, f"h.composer({_json.dumps(str(wav))}, 19.5);\n")
+    with wave.open(str(wav)) as w:
+        assert w.getnchannels() == 2 and w.getsampwidth() == 2 and w.getframerate() == 44100
+        assert abs(w.getnframes() / 44100 - 19.5) < 0.01
+        import array
+        echantillons = array.array("h", w.readframes(w.getnframes()))
+    crete = max(abs(x) for x in echantillons)
+    assert 0.5 * 32767 < crete < 0.95 * 32767, crete
 
 
 
@@ -2575,7 +2692,7 @@ def test_les_scripts_video_sont_du_javascript_valide():
     import subprocess
     if not shutil.which("node"):
         pytest.skip("node absent")
-    for f in ("fabriquer.mjs", "scenario-modele.mjs"):
+    for f in ("fabriquer.mjs", "scenario-modele.mjs", "habillage.mjs"):
         r = subprocess.run(["node", "--check", os.path.join(_racine_depot(), "dev", f)],
                            capture_output=True, text=True, timeout=30)
         assert r.returncode == 0, r.stderr
@@ -2588,7 +2705,10 @@ def test_l_image_du_poste_a_les_outils_de_la_video():
     assert "ffmpeg" in dockerfile
     assert "playwright install --with-deps chromium" in dockerfile
     assert "piper-tts==" in dockerfile and "fr_FR-siwis-medium.onnx.json" in dockerfile
-    assert "COPY dev/fabriquer.mjs dev/scenario-modele.mjs" in dockerfile
+    assert "COPY dev/fabriquer.mjs dev/scenario-modele.mjs dev/habillage.mjs" in dockerfile
+    # La police des titres, copiee a cote : rien n'est charge en ligne.
+    assert "COPY app-manager/app/manrope-latin.woff2 app-manager/app/LICENCE-manrope.txt " \
+           "/usr/local/share/codelab/video/" in dockerfile
     assert "## 14. Video de presentation" in open(
         os.path.join(_racine_depot(), "dev", "AGENTS.md"), encoding="utf-8").read()
 
@@ -11740,11 +11860,14 @@ def test_le_laissez_passer_retrouve_l_application_par_son_dossier(tournage, monk
                       headers={"X-CodeLab-Tournage": cle})
     a = app.load()
     a["prive-refuse"]["titre"] = "Cave Privée"
+    a["prive-refuse"]["description"] = "Tes bouteilles, rangées et notées"
     app.save(a)
     r = par_dossier("/w/b")
     assert r.status_code == 200 and r.get_json()["app"] == "prive-refuse", r.get_json()
-    # Le nom affiche, pour les cartons de la video.
+    # Le nom affiche, pour les cartons de la video, et la description, pour
+    # l'accroche du scenario automatique.
     assert r.get_json()["titre"] == "Cave Privée"
+    assert r.get_json()["description"] == "Tes bouteilles, rangées et notées"
     assert c.get(f"/prive-refuse/?codelab-tournage={r.get_json()['ticket']}").status_code == 302
     # Le projet au-dessus d'une seule application declaree dans un sous-dossier.
     a = app.load()

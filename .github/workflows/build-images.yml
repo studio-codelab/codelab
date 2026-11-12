@@ -182,7 +182,7 @@ jobs:
           codelab-postgres postgres/Dockerfile postgres/
           codelab-redis redis/Dockerfile redis/
           codelab-mailpit mailpit/Dockerfile mailpit/
-          codelab-dev dev/Dockerfile dev/ postgres/proteger-base.sql
+          codelab-dev dev/Dockerfile dev/ postgres/proteger-base.sql app-manager/app/manrope-latin.woff2 app-manager/app/LICENCE-manrope.txt
           codelab-dagster dagster/Dockerfile dagster/Dockerfile dagster/dagster.yaml dagster/entrypoint.sh dagster/lancer.sh dagster/isolation.py workspace/
           codelab-dagster-proxy dagster/proxy/Dockerfile dagster/proxy/ app-manager/app/jakarta-latin.woff2 app-manager/app/LICENCE-jakarta.txt
           codelab-app-manager app-manager/Dockerfile app-manager/ postgres/proteger-base.sql
