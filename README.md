@@ -10,9 +10,9 @@ main.
 - **Ils te répondent** : un message, une capture ou une maquette, que tu ranges en projets et en
   tâches, jusqu'à la feuille de route.
 
-[![La présentation de CodeLab en vidéo (une minute)](.github/presentation/affiche.jpg)](.github/presentation/codelab.mp4?raw=1)
+[![La présentation de CodeLab en une minute](.github/presentation/codelab.gif)](.github/presentation/codelab.mp4)
 
-*La présentation en une minute : clique sur l'image pour lancer la vidéo.*
+*La présentation en une minute. La version avec le son : [`codelab.mp4`](.github/presentation/codelab.mp4), à télécharger.*
 
 ## En un coup d'œil
 
