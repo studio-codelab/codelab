@@ -186,7 +186,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     l'encoche et reçoit les bords de l'écran (ses `env(safe-area-inset-*)` sont réécrits), les autres
     sont posées dans la zone sûre avec leur couleur autour.
   - **Chaque application est une vraie application** : elle s'installe seule sur l'écran d'accueil
-    (manifeste, icône, nom, fournis par le panneau), y compris sur son sous-domaine.
+    (manifeste, icône, nom, fournis par le panneau).
   - **L'environnement, posé sur chaque page d'application** : `html.mode-app` ou `mode-site`,
     `data-appareil` (téléphone, tablette, ordinateur), `data-plateforme`, les bords de l'écran en
     variables CSS (`--codelab-bord-haut`…), et `window.CODELAB.environnement` pour le script. Les mêmes
@@ -323,9 +323,10 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
   - *Privée* : comptes autorisés seulement.
   - *Réseau local* : ouverte sans connexion depuis chez toi ; depuis internet (Tailscale Funnel
     compris), privée.
-  - *Publique* : lien partageable, possible seulement si une adresse publique est déclarée.
+  - *Publique* : lien partageable, possible seulement quand Tailscale Funnel est allumé (l'adresse
+    publique du serveur).
 
-  Sans adresse publique, le bouton de la fiche propose « Ouvrir au réseau local ».
+  Funnel éteint, le bouton de la fiche propose « Ouvrir au réseau local ».
 - **Se connecter avec CodeLab** (SSO) : l'application reconnaît la personne sans formulaire, grâce
   aux modules `codelab_auth.py` et `codelab-auth.js`.
 
@@ -647,17 +648,7 @@ Détails : [`workspace/diagnostic/README.md`](workspace/diagnostic/README.md).
 
 ## 10. Exposition sur Internet
 
-Détails : [`app-manager/vps/README.md`](app-manager/vps/README.md).
-
-- **VPS + WireGuard** : le VPS porte le domaine et le certificat, ton serveur compose le tunnel.
-- **Une application, un sous-domaine** : ouvert par `toi.duckdns.org`, le panneau sert chaque
-  application à `https://<son-nom>.toi.duckdns.org` — le nom de sa fiche. Rien à déclarer : ni
-  variable, ni champ. En local, rien ne change (le port des applications). Il faut seulement que le
-  port `9002` soit ouvert : sans lui, les applications restent sous `https://toi.duckdns.org/<nom>/`.
-- **L'adresse publique s'apprend** : c'est le domaine par lequel le panneau a été ouvert depuis
-  internet. Elle sert aux liens d'invitation et permet de rendre une application publique.
-
-- **Sans nom de domaine : Tailscale Funnel.** Paramètres > Sécurité > *Accès depuis internet*, un
+- **Tailscale Funnel**, la seule porte vers internet. Paramètres > Sécurité > *Accès depuis internet*, un
   interrupteur (administrateur). Le panneau fait tourner Tailscale et publie, gratuitement et sans
   rien ouvrir sur la box :
   - le panneau sur `https://<machine>.<ton réseau>.ts.net`, et les applications sur le même nom

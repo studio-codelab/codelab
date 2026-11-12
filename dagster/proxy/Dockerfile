@@ -12,9 +12,11 @@ COPY dagster/proxy/mailpit.conf /etc/nginx/conf.d/mailpit.conf
 # L'interface Mailpit de CodeLab (page, script, style, logos) et la police
 # Plus Jakarta Sans (licence OFL jointe), rangee avec les polices du panneau, recopiee ici
 # pour etre servie de la meme origine.
-COPY dagster/proxy/mailpit-ui/ /usr/share/nginx/codelab/mailpit/
-COPY app-manager/app/polices/jakarta-latin.woff2 /usr/share/nginx/codelab/mailpit/jakarta.woff2
-COPY app-manager/app/polices/LICENCE-jakarta.txt /usr/share/nginx/codelab/mailpit/LICENCE-jakarta.txt
+COPY dagster/proxy/app.css dagster/proxy/app.js dagster/proxy/index.html dagster/proxy/theme.js \
+     dagster/proxy/codelab.png dagster/proxy/codelab.svg dagster/proxy/logo.png \
+     /usr/share/nginx/codelab/mailpit/
+COPY app-manager/app/jakarta-latin.woff2 /usr/share/nginx/codelab/mailpit/jakarta.woff2
+COPY app-manager/app/LICENCE-jakarta.txt /usr/share/nginx/codelab/mailpit/LICENCE-jakarta.txt
 # L'en-tete d'authentification vers Mailpit est ecrit au demarrage par
 # l'entrypoint. En attendant -- et pour que "nginx -t" passe ci-dessous --,
 # un fichier qui refuse tout : jamais d'acces a Mailpit sans son mot de passe.

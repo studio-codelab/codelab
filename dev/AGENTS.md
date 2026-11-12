@@ -81,7 +81,7 @@ toutes les commandes.
 ## 5. Application web servie par le hub
 
 Le panneau lance la commande de lancement dans **son** conteneur, et la sert sur
-`http://<serveur>:9002/<adresse>/` (derriere un VPS : `https://<adresse>.<domaine>/`).
+`http://<serveur>:9002/<adresse>/` (par Tailscale Funnel : `https://<machine>.<reseau>.ts.net:8443/<adresse>/`).
 Le port `9002` est une origine separee de celle du panneau (`9001`). Toutes les
 applications passent par lui : chacune ecoute sur un port interne (`$PORT`, de
 `9101` a `9140`), que le panneau relaie. Si le `9002` ne s'ouvre pas, ou vaut `0`
@@ -180,7 +180,7 @@ Les memes variables sont passees a la commande de build. Le `.env` du projet
 - **Description** : une ligne, saisie dans la fiche de l'application.
 - **Visibilite.** *Privee* : le panneau impose la connexion CodeLab et le droit
   sur l'application avant la premiere requete. *Publique* : ouverte a tous,
-  possible seulement si une adresse publique est declaree. Ce reglage se fait
+  possible seulement quand Tailscale Funnel est allume. Ce reglage se fait
   dans le panneau, **jamais dans le code** : n'ajoute pas ta propre barriere
   devant une application privee.
 - **Le cadre.** Le panneau pose `frame-ancestors` pour que le hub puisse
@@ -304,9 +304,32 @@ L'identite contient `sub`, `nom`, `role` (`admin` ou `utilisateur`), `email` et
 Une application privee a deja la connexion imposee par le panneau. Mais les
 applications d'un meme serveur partagent son reseau local : une autre
 application, malveillante ou compromise, peut joindre ton port directement,
-sans passer par le panneau. Si l'application garde des donnees sensibles,
-verifie donc aussi l'identite toi-meme, a chaque requete : sans jeton signe
-valide, `utilisateur(request.headers)` rend `None`, et la requete se refuse.
+sans passer par le panneau. **Si l'application garde des donnees sensibles,
+elle verifie l'identite elle-meme, a chaque requete** : la visibilite
+*Privee* ou *Reseau local* ne suffit pas, l'une et l'autre se controlent dans
+le proxy, que la voisine contourne. Sans jeton signe valide,
+`utilisateur(request.headers)` rend `None`, et la requete se refuse. Le jeton
+est lie a ton application (`aud`) : celui qu'une voisine a recu pour elle ne
+vaut rien chez toi. Le minimum, pour une application reservee aux comptes
+CodeLab (Flask) :
+
+```python
+from flask import abort, g, request
+import codelab_auth
+
+@app.before_request
+def exiger_codelab():
+    u = codelab_auth.utilisateur(request.headers)
+    if u is None:
+        abort(403)
+    g.utilisateur = u          # u["sub"], u["role"] : qui, et avec quel droit
+```
+
+Si l'application a aussi ses propres comptes, garde l'ordre de la connexion
+silencieuse ci-dessus : sa session, sinon le jeton, sinon son formulaire.
+Ce controle ne protege pas d'un script d'une autre application, servie sur la
+meme origine (`:9002`, `:8443`) : celui-la agit dans le navigateur du
+visiteur, avec son jeton.
 
 ## 10. Pages d'erreur et en-tetes de securite
 
@@ -721,6 +744,9 @@ chaque point, et dis lesquels tu n'as pas pu verifier.
 - [ ] Une cle d'API par application chez chaque fournisseur, dans son `.env`
 - [ ] Connexion via `codelab_auth` si l'application a des comptes ; aucun
       en-tete `X-CodeLab-*` cru sans le jeton signe
+- [ ] Donnees sensibles : identite verifiee a chaque requete
+      (`codelab_auth.utilisateur`), pas seulement la visibilite (*Privee*,
+      *Reseau local*)
 - [ ] En-tetes de securite poses (`entetes_de_securite`) ou ecart justifie
 - [ ] Entrees utilisateur validees cote serveur ; requetes SQL parametrees
 - [ ] Base du projet (jamais `POSTGRES_DB`) ; cles Redis prefixees, cache avec

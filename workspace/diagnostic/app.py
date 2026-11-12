@@ -775,7 +775,7 @@ def police_locale(nom):
     theme = fichier_du_theme()
     if not theme or not nom.endswith(".woff2") or "/" in nom or ".." in nom:
         return Response("", status=404, mimetype="text/plain")
-    chemin = os.path.join(os.path.dirname(theme), "polices", nom)
+    chemin = os.path.join(os.path.dirname(theme), nom)
     if not os.path.isfile(chemin):
         return Response("", status=404, mimetype="text/plain")
     with open(chemin, "rb") as f:

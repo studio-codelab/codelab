@@ -38,7 +38,7 @@
                  version, preferences.
   CHOIX       - Une seule page : la navigation ne recharge rien, et l'etat
                 (fiche ouverte, onglet) suit l'adresse.
-              - Le script vit dans panneau/ (modules assembles, mis en cache,
+              - Le script vit dans panneau.js (mis en cache,
                 a une session) ; la page ne garde en ligne que
                 window.CODELAB_PAGE, les six valeurs que le serveur ecrit a
                 chaque affichage.
@@ -80,7 +80,7 @@ __ECRANS_DEMARRAGE__
 <!-- LE MODE (site web ou application) : mode.js le lit et le pose sur
      <html>, avant tout affichage. Une seule copie pour les trois pages. -->
 <script src="/mode.js"></script>
-<script>
+<script nonce="__NONCE__">
 /* Le sens du defilement du hub. L'horizontale ne vaut qu'en paysage : une
    tablette tenue en portrait defile vers le bas, comme son ecran d'accueil,
    au lieu d'etirer trois rangees de tuiles sur toute la hauteur. Pose avant
@@ -98,7 +98,7 @@ function majSensDuHub(){
 majSensDuHub();
 </script>
 
-<style>
+<style nonce="__NONCE__">
 /* Le THEME (couleurs, formes, tailles) vit dans theme.css, servi par le
    panneau et partage avec l'autre page. Ici ne restent que les regles
    propres a cet ecran. Pour repeindre le panneau : theme.css, pas ici. */
@@ -1377,7 +1377,7 @@ body{letter-spacing:-.01em}
    z-index -1 dans son contexte d'empilement) : le fond de la page, plein
    sous le bandeau puis en degrade sur 28 px, si bien qu'une tuile s'estompe
    au lieu d'etre tranchee. Il n'apparait que la page defilee (classe
-   page-defilee, posee par 00-socle.js) : en haut de page, rien ne passe
+   page-defilee, posee par panneau.js) : en haut de page, rien ne passe
    dessous.
    Le bandeau lui-meme reste transparent : mode.js lit sa couleur pour la
    barre d'etat, et retombe alors sur celle du fond -- la meme, mais opaque.
@@ -2360,10 +2360,10 @@ a.pj:hover{border-color:var(--accent)}
 <div id="defile">
 <div class="topbar">
   <div class="topbar-gauche">
-  <button class="side-toggle-btn" id="btn-menu" onclick="toggleSidebar()" title="Réduire / étendre le menu">
+  <button class="side-toggle-btn" id="btn-menu" data-agir="toggleSidebar" title="Réduire / étendre le menu">
     <svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
   </button>
-  <div class="topbar-brand" onclick="showSection('hub')" title="Accueil">
+  <div class="topbar-brand" data-agir="showSection" data-args='["hub"]' title="Accueil">
     <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAABmJLR0QA/wD/AP+gvaeTAAAOlklEQVR4nO2de5RV9XXHP/vcuQwgyjM2mQwzc2fugIq1tVhNgjFEZZmkrGiyDMTWkFgJq5AMd0hbTdLYzkqTlZfIPIQuqVmQ1xJFW21NmpClaEzzArWrQgTmdWdE4it2oFVg5t7f7h8w48wwA79zzzn3nsOcz19w796/vWF/73n+fvsHMTExExcpdQKDpBsOVuLk313qPIqCSfyyo63yYKnTACgrdQJDOPl3gz5Q6jSKgpNfBmwvdRoATqkTiCktsQAmOLEAJjixACY4sQAmOLEAJjixACY4oRFAUvTnwKulzqMIvHry3xoKQiOA55trfifCLYCWOpcAURFueb655nelTmSQ0DwKHiSd6dkA2ujS7QmQTUHkMx6CrlW40qVXc0dL9bpgMiqM8DwKHsT0fx4n+T7gUhde7xHRNe3NNc8HldZw0ut6FqjhCpduz2L6Px9IQh4IzSlgkI62+uMJzE3AGy7cJqmyPqicRiNGW4CkC5c3EpibOtrqjweVU6GETgAA+1tq94tqg0u3D9Y1Zq8OJKFhpDPd1ylc48ZHVBv2t9TuDyonL4RSAADtraktAtvc+Ijy5aDyGRalyZU1bGtvTW0JKBnPhFYAAAOiqwE3780X1We6rgoqn5NHmHe5cOnNT87/VVD5+EGoBZBtTvWB8xl3Xo7bOwhrRHF1BW+U1V3fqDscVD5+ELrbwLGoz2R/qPAhS/Oc4yRqDmyY+6KfOaQ+01WdKHO6sP7R6L91tKSu9zOHIAj1EWAQo87tgLE0LzMm9wm/cyhLOCuw///Ki0jobvnGIhIC6Gyt2oPogy5c/tzvHFRcjXl/sZ5JeCUSAgAwmrjT3lr+sPZznfP8ip1u6LkIuMDaweAi19ISGQF0tVTtAnbb2jsmsdSv2Cpqe/0B8KuOtppn/YodNJERAICqfNfemGv9iiuOLLG2Vf2OX3GLQaQEkM+Z7dhfDC7iY5rwGnNxk5ahusjSPK+ae8hrzGISKQFkN6VeEvRpS/Pz0pW99uftcXixL3sxcI6l+a6OtvpIzWmIlAAAFB63N9Y/9iGk9RiiPOZDvKISOQGg/NLWVAwXeg1nVC6ytc3DL7zGKzaRE0A+r/9la6siaa/xHLAeI2kc69zCQuQE0L0x1Qu8aWet1d4jaqWl4ZH9d1cd8h6vuEROACAK9Foan+81miLvsDS1zSlURFAAAPKKpeFMH4JZjaHKSz7EKjoRFYAesTS0vX07HVNtjEQI9Wvf8YimAJRjlpZu5u2dyokHSVavzAUGPMUqEdEUgFjPZs57irMdg+U6BdUQzrC2IKICEKvDMlgfKcYLpNZjiC+nm6ITSQGIGrsLM/hfH8LZXW+ozPYhVtGJpAAMYnVvLuhrPoSzG0O0wodYRSdyAph/275zBd5uZ+14fjCjiu06voqKVYdsT02hIXICyPdPvhjryaza5TWeQNbS1Jl8Ts76vUFYiJwAxMjl1rYq3lfjOFjP7XOMsc4tLEROACr6Xltbg/6313ii8pwL68AWpQRFpASwcNXuJPbr8ozogO3kkXFJ5BLPYN2zQK9d3KSReh4QKQEcnjL7amCGja3Ano62ettHxuOyb2Pl74F9luazX+jridRRIFICEHFusrU1ojt9DG0900cM1jmGgcgIoKaxe4aqfszWXpT/8Cu2CD+2N2Z5uqH9PL9iB01kBJAwshLLN3NAX/nMN307Agz06WPA/1man4tTdqtfsYMmEgKoXPfCFITP2dqLyCN7mxb0+xU/uzV1DOURew/565pPdU/2K36QREIAk41ZK2A7M4e84Xt+56Do912Yv7NshqzxO4cgCL0AatZ0vx30Cy5cOrtmVfl5AXhi0Fk1O9T+qSAoX0o3tL/N7zz8JvQCKEtKKzDd3kM30iS2q4fsaRKDstGFx0yc5F2+5+EzoRZAXaZ7OWB95Q+8nig/fm9Q+YgObAb6XLjcXN+Y/WhQ+fhBaAVQu7azXpB73PgIbNj/zQv8mAMwJh1t9UcQbXHjo8q98z+bTQWVk1dCKYDa2zunO5L4V1wd+nl50sDU5qByGiKfuwvbOQInmGkSPDz/tn3nBpWSF0IngHRDe7lzLPEvwAI3forcsXfT+bb36gVz8vHyP7jxUbgkf7z8oQVNeycFlFbBhEoAC1ftTpKYdD/gruGjym86Z1Z9O5isTqXjUPU9wDPuvGTJ8b5pD5x8oRUaQiOAhat2Jw9PmfMAqm47a/WbhLMykCv/8dgueYRP43YquOr1h6fMCZUIQiGAoeLDDW59Vfhy14a5Lt7Z+0NHc80zqHy1ANcbwiSCkgvAS/GBnZ0vVn/d75xsqZxV9VVVfaoA19CIoKQC8Fj8g3nMTWwXb4s/PPBEk+QmObIcKGTyaShEULJOoR6LD3AY2APsQ3SPMc5zxjFPn2gvW1zmreu63BhnJ/ZvK4fz8PSjry17evNlJVlaVhIB+FD88VCUdkR/hchTxsn/rOuuugM+xxiT9Nru6xF5CCikMVXJRFB0AQRY/HGQF0B3iPCjSf1TdwT5rKAu07NC0C0UdmotiQiKKoDiF/8UjqH6UxXnQTH9D/sxZ3A09Wu7b1GRe4mICIomgBAUfzRHBR4xwnc7X6ze4efFZJREUBQBhLD4o+lVYTNluX/uvDNt233ktERFBIELIALFH85xRe5DZX1na9Uer4NFQQSBCiBixR+Oovqok9CvHNhQ+xsvA4VdBIEJIMLFH4X8BGO+1tGWerLQEcIsgkAEcPYU/y0E3aUiLeUz3theyIzjsIrAdwF4LL4R1ZXts2q+U/Vy7/TklIFp5CZNF83PJiGVolSoUo1IGnQeUE3xH2e/oqJbEzm2HLg7ZbtkDAinCHwVgC/Fd7HH3iV/89I5RweOXqzIQhG5XNW8B6S+gNiF8mtEt5FPPtjRVmm1vV3YROCbAIpd/PG4sDH7jgG4WpAlqvpBfOgWaoEKuhuVf8+L8+OumXOfPt38hDCJwBcBhKX4p9CkTrqv5wpVPiLCMhQfegdb8TrwM4SnFPn10TeTzx7aXDGiv3FYROBZAKEt/imo1GZ6Fzmqn0RYDhRzkmYO2C/wHMpvDdqeSGiXMc61QCGTSsAnEXgSQHSKP5IFa16Z1l/2xs0q8llcTj4NGZ5FULAAolr8kajUZ3qvBb3d7Y7gIcKTCAoSwNlR/JHUZ7qvMMgdAn9W6lwKoGARuBbA2Vj84aQbspeKw20KN0Kk+v8WJAJXAjjbiz+c2kxnlYOzBuRWYE6p87HEtQisBTCRij+cdEN7OYnkjSh/CSwmBDOpz4ArEVgJYKIWfzS1mc6qhJZ9XEWXA39S6nxOg7UIziiAuPhjM29dT61RvQFlKXAlXjen8B8rEZxWAHHx7Viw5pVpx8uPvl/VXCMqVwGXUNjsYL85owjGFUBc/MKZf9u+c/P95QvVyGUiXMoJQcwDSrE6+LQiGFMAcfH9Z3GTlvW+3pUSnDpxSGGcueJQoarnCzpHkVnAeZw4lVh1Q3XBuCI4RQAei6+Crm5vSbnq7BFjR31j96dU5dsUcCci8CM1Ax/taKs/Purzt4iLH378FsGQAOLiRwc/RTA0wJEpcz5M4ef8W+PiF4/25tRWUV0JuG6KofAhcZJLB//uvPWFFPKESwVdE1/wFZ/21tQWEb2VAkQwHC+PNeNffonxciQY5K0jgGrOhV98qxcS2ltTW9yKYHithwTgiLhYNq3fiosfHtpbU1sU1tvaG5yhWr91BBD9vd+JxRQPcXE6V8m/OvjnIadcv9r3uRHnAmvbmKKgYF2TZNnkoVoPCSC7qeZlbHfFUL3MTXIxQaMiYFuTvgPrK4Za3Q47bIii8lvLQd45P9M13z7BmCBJN/ReCPyBpfmIGo88b4ha77NnNOG2o2dMQIij1i3pRRhR4xECEPi57UAq+klb25ggUVHlE9bWRkbUeIQAcpjHsL+fvKg+07PENnBMMNQ19nwAYZ6led5JJh8f/sEIAXS31L4MWHfEMGrusLWNCQIVUf7e3l7+c/gFIIxx7ygq26yHE3lv3drsR+wTiPGTdKb3RuBd9h56/+hPThVAMvkD4Pjoz8dDRFqitFPm2ULV6p6ZoG52SDna3y/3jf7wFAEcWF/xmoj9UQB0Lk5Zm4tEYnygfJJuAiqsHZT7ev+p+n9Gfzzm40Nj5E5cvWGSFenG7Ep7+xgvpDPZNQofd+GSd4x+a6wvxhTAiR55st1VVsrG+kxXpLZOjyK1a3uuAdxujnXfeP2Mxn+BYOTvcHEtAExSnEfmNXT9kcvkYixJN2QvdUQfwt0ilGP5nPnSeF+OK4COtqpOUe50kyAwwzjOjvS6nig3XQglqUzXJTj8BHdb6YHoN7o31vaM9/VpXyEOHNGvAK5aoQHnY3RnujEb5rVzkaI20/unCZzHAbd7Ee8ln/va6QxOK4Ds1tQxg7MCt7tjwdtQdsZPCr2TznRf52AeB2a7dO1HWDF6HcBozjiJoKulapcqX3QZHOA8RX9Yl+n5dAG+MUC6sXs1yKPANLe+gvxtR3PNGfc2tOwPoJJuzG5DZZnbRAAUuUfgsUJ8Jy66BCjsx6P8oKO15mYbU+sGERWrDk2dOnlgJ6KXF5RUTLH4Re6wXpPdmjpmY2w9j+zQ5oo30f6lKEXZhCmmIPaV5co+bFt8KKBJVG2ms0pIPClQ49Y3JlC6MWVX2fYsHsT1wpCulrrepOj7gW63vjGB0WnIL3ZbfPDQKDLdcLASJ7cDuLDQMWL8QJ9L5BMf2H93VSG7lxa+NKyjrfJguZO40s00shifEZ7s73feV2jxwWPLs70b5r4+cFiXKJzynjkmYITvkR+4bqxXvO6G8QWVdKbnC8A/Ev4+elEnLypfbG+t/qYfg/m6Y0g6030dyPeJTmfNqPGqIH/R3lL9U78G9H3PoJMXh9uARX6PPZERdFdCWLavOZX1d9wAWNykZS/0ZZeKOmFrnhhJVMzA3Bk1jz7RJG6W8MfExMScgf8HJ4TwVTw8N00AAAAASUVORK5CYII=" alt=""><b>CodeLab</b>
   </div>
   </div>
@@ -2372,20 +2372,20 @@ a.pj:hover{border-color:var(--accent)}
 
   <div class="qui"><b id="qui-nom"></b><span id="qui-role"></span></div>
   <div class="acct-wrap">
-    <button class="acct-btn" id="acct-btn" onclick="toggleAcctMenu()" title="Compte">
+    <button class="acct-btn" id="acct-btn" data-agir="toggleAcctMenu" title="Compte">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20.5c0-4.1 3.4-7.5 7.5-7.5s7.5 3.4 7.5 7.5"/></svg></button>
     <div class="acct-menu" id="acct-menu">
       <!-- Une seule entree : tout ce qui se regle est derriere, range par
            onglets. Deux entrees pour la meme piece obligeaient a se demander
            dans laquelle chercher. -->
-      <div class="acct-item" id="acct-parametres" onclick="allerA('parametres')">
+      <div class="acct-item" id="acct-parametres" data-agir="allerA" data-args='["parametres"]'>
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/>
         <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         <span>Paramètres</span></div>
       <div class="acct-sep"></div>
       <!-- En rouge : c'est la seule action de ce menu qui defait quelque
            chose. La couleur la separe du reste sans avoir a la relire. -->
-      <div class="acct-item acct-sortir" onclick="doLogout()">
+      <div class="acct-item acct-sortir" data-agir="doLogout">
         <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
         <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
         <span>Déconnexion</span></div>
@@ -2395,28 +2395,28 @@ a.pj:hover{border-color:var(--accent)}
 
 <div class="page-body">
 
-<div class="voile-menu" id="voile-menu" onclick="fermerMenuMobile()"></div>
+<div class="voile-menu" id="voile-menu" data-agir="fermerMenuMobile"></div>
 <nav class="sidebar" id="sidebar">
   <div class="side-nav">
     <div class="side-label">Navigation</div>
-    <div class="side-item active" data-sec="hub" onclick="showSection('hub')">
+    <div class="side-item active" data-sec="hub" data-agir="showSection" data-args='["hub"]'>
       <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/>
       <rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>
       <rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
       <span>Hub</span></div>
     <div class="side-sep"></div>
-    <div class="side-item admin-seul" data-sec="overview" onclick="showSection('overview')">
+    <div class="side-item admin-seul" data-sec="overview" data-agir="showSection" data-args='["overview"]'>
       <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="10" rx="1.5"/>
       <rect x="13" y="3" width="8" height="6" rx="1.5"/><rect x="13" y="11" width="8" height="10" rx="1.5"/>
       <rect x="3" y="15" width="8" height="6" rx="1.5"/></svg>
       <span>Vue d'ensemble</span></div>
-    <div class="side-item admin-seul" data-sec="apps" onclick="showSection('apps')">
+    <div class="side-item admin-seul" data-sec="apps" data-agir="showSection" data-args='["apps"]'>
       <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/>
       <rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>
       <rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
       <span>Applications</span>
       <span class="side-count" id="side-count">0</span></div>
-    <div class="side-item admin-seul" data-sec="users" onclick="showSection('users')">
+    <div class="side-item admin-seul" data-sec="users" data-agir="showSection" data-args='["users"]'>
       <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.4"/>
       <path d="M2.5 20c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5"/>
       <path d="M16.5 5.2a3.4 3.4 0 010 6.1"/><path d="M18 13.9c2.1.7 3.5 2.6 3.5 4.9"/></svg>
@@ -2425,7 +2425,7 @@ a.pj:hover{border-color:var(--accent)}
     <!-- Un compte utilisateur ecrit a l'administrateur dans sa rubrique
          Messages, une entree du menu (de la barre du bas au telephone). -->
     <div class="side-item utilisateur-seul" data-sec="message"
-         onclick="allerA('message')">
+         data-agir="allerA" data-args='["message"]'>
       <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       <span>Messages</span>
       <span class="side-count" id="side-count-suivi" style="display:none">0</span></div>
@@ -2451,14 +2451,14 @@ a.pj:hover{border-color:var(--accent)}
   <label class="hub-recherche" id="hub-recherche">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
     <input type="search" id="hub-filtre" placeholder="Ouvrir une application…" aria-label="Rechercher une application"
-      autocomplete="off" oninput="peindreHub()">
+      autocomplete="off" data-saisir="peindreHub">
   </label>
   <!-- Composer le hub : ses widgets et l'ordre des tuiles. -->
   <span class="hub-compose-groupe">
-  <button class="btn btn-default hub-compose" id="hub-ajouter-widget" onclick="ouvrirGalerie()" style="display:none"
+  <button class="btn btn-default hub-compose" id="hub-ajouter-widget" data-agir="ouvrirGalerie" style="display:none"
     aria-label="Ajouter un widget" title="Ajouter un widget">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
-  <button class="btn btn-default hub-compose" id="hub-modifier" onclick="basculerEdition()"
+  <button class="btn btn-default hub-compose" id="hub-modifier" data-agir="basculerEdition"
     title="Réorganiser le hub" aria-label="Réorganiser le hub"></button>
   </span>
   </div>
@@ -2520,12 +2520,12 @@ a.pj:hover{border-color:var(--accent)}
           <div class="path" id="carte-sous">Une case par jour, du 1<sup>er</sup> janvier au 31 décembre.</div></div>
         <div class="spacer" style="flex:1"></div>
         <div class="carte-filtres">
-          <select id="carte-annee" onchange="chargerCarte()" aria-label="Choisir l'année">
+          <select id="carte-annee" data-changer="chargerCarte" aria-label="Choisir l'année">
           </select>
-          <select id="carte-qui" onchange="chargerCarte()" aria-label="Filtrer par personne">
+          <select id="carte-qui" data-changer="chargerCarte" aria-label="Filtrer par personne">
             <option value="">Tout le monde</option>
           </select>
-          <select id="carte-app" onchange="chargerCarte()" aria-label="Filtrer par application">
+          <select id="carte-app" data-changer="chargerCarte" aria-label="Filtrer par application">
             <option value="">Toutes les applications</option>
           </select>
         </div>
@@ -2565,7 +2565,7 @@ a.pj:hover{border-color:var(--accent)}
   <div class="toolbar">
     <h2>Applications</h2>
     <div class="spacer"></div>
-    <button class="btn btn-primary" onclick="openAdd()">
+    <button class="btn btn-primary" data-agir="openAdd">
       <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Nouvelle application</button>
   </div>
   <!-- LES OUTILS RESTENT HORS DU REPEINT : la liste se redessine toutes les
@@ -2574,22 +2574,22 @@ a.pj:hover{border-color:var(--accent)}
     <label class="ap-recherche">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       <input type="search" id="ap-filtre" placeholder="Rechercher une application" aria-label="Rechercher une application"
-        autocomplete="off" oninput="apFiltrer()">
+        autocomplete="off" data-saisir="apFiltrer">
     </label>
     <div class="ap-puces" id="ap-etats" role="group" aria-label="Filtrer par état"></div>
-    <select class="ap-choix" id="ap-vis" aria-label="Filtrer par visibilité" onchange="apFiltrer()">
+    <select class="ap-choix" id="ap-vis" aria-label="Filtrer par visibilité" data-changer="apFiltrer">
       <option value="">Toutes visibilités</option><option value="privee">Privées</option>
       <option value="locale">Réseau local</option><option value="publique">Publiques</option></select>
-    <select class="ap-choix" id="ap-cat" aria-label="Filtrer par catégorie" onchange="apFiltrer()"></select>
-    <select class="ap-choix" id="ap-tri" aria-label="Trier par" onchange="apTrier(this.value)">
+    <select class="ap-choix" id="ap-cat" aria-label="Filtrer par catégorie" data-changer="apFiltrer"></select>
+    <select class="ap-choix" id="ap-tri" aria-label="Trier par" data-changer="apTrier">
       <option value="nom">Trier par nom</option><option value="etat">Trier par état</option>
       <option value="visibilite">Trier par visibilité</option><option value="port">Trier par port</option>
       <option value="cpu">Trier par CPU</option><option value="memoire">Trier par mémoire</option></select>
     <div class="spacer"></div>
     <div class="segment ap-vues" role="group" aria-label="Affichage">
-      <button data-v="cartes" onclick="apVue('cartes')" title="Cartes" aria-label="Cartes">
+      <button data-v="cartes" data-agir="apVue" data-args='["cartes"]' title="Cartes" aria-label="Cartes">
         <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg></button>
-      <button data-v="liste" onclick="apVue('liste')" title="Liste" aria-label="Liste">
+      <button data-v="liste" data-agir="apVue" data-args='["liste"]' title="Liste" aria-label="Liste">
         <svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
     </div>
   </div>
@@ -2599,7 +2599,7 @@ a.pj:hover{border-color:var(--accent)}
 
 <!-- ==================== FICHE D'UNE APPLICATION ==================== -->
 <div id="sec-app" class="section" style="display:none">
-  <button class="btn btn-quiet btn-sm" onclick="showSection('apps')" style="margin-bottom:14px">
+  <button class="btn btn-quiet btn-sm" data-agir="showSection" data-args='["apps"]' style="margin-bottom:14px">
     <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>Toutes les applications</button>
 
   <div class="fiche-tete">
@@ -2623,12 +2623,12 @@ a.pj:hover{border-color:var(--accent)}
   </div>
 
   <div class="fiche-onglets" id="fiche-onglets">
-    <button data-o="general" onclick="ficheOnglet('general')" class="active">Général</button>
-    <button data-o="metriques" onclick="ficheOnglet('metriques')">Métriques</button>
-    <button data-o="journal" onclick="ficheOnglet('journal')">Journal</button>
-    <button data-o="activite" onclick="ficheOnglet('activite')">Activité</button>
-    <button data-o="acces" onclick="ficheOnglet('acces')">Accès</button>
-    <button data-o="config" onclick="ficheOnglet('config')">Configuration</button>
+    <button data-o="general" data-agir="ficheOnglet" data-args='["general"]' class="active">Général</button>
+    <button data-o="metriques" data-agir="ficheOnglet" data-args='["metriques"]'>Métriques</button>
+    <button data-o="journal" data-agir="ficheOnglet" data-args='["journal"]'>Journal</button>
+    <button data-o="activite" data-agir="ficheOnglet" data-args='["activite"]'>Activité</button>
+    <button data-o="acces" data-agir="ficheOnglet" data-args='["acces"]'>Accès</button>
+    <button data-o="config" data-agir="ficheOnglet" data-args='["config"]'>Configuration</button>
   </div>
 
   <div class="onglet actif" id="onglet-general">
@@ -2638,7 +2638,7 @@ a.pj:hover{border-color:var(--accent)}
     <div class="card zone cause" id="fa-cause" style="display:none" role="status">
       <div class="card-top"><div class="card-name"><b id="fa-cause-titre"></b>
         <div class="path" id="fa-cause-conseil"></div></div>
-        <button class="btn btn-default btn-sm" onclick="ficheOnglet('journal')">Tout le journal</button></div>
+        <button class="btn btn-default btn-sm" data-agir="ficheOnglet" data-args='["journal"]'>Tout le journal</button></div>
       <pre class="cause-lignes" id="fa-cause-lignes"></pre>
     </div>
     <div class="cartes c2 zone">
@@ -2691,8 +2691,8 @@ a.pj:hover{border-color:var(--accent)}
 
   <div class="onglet" id="onglet-journal">
     <div class="log-barre">
-      <input id="lg-search" placeholder="Filtrer les lignes..." oninput="renderLogFilter()" autocomplete="off">
-      <button class="btn btn-default btn-sm" onclick="viderLog()">Vider l'affichage</button>
+      <input id="lg-search" placeholder="Filtrer les lignes..." data-saisir="renderLogFilter" autocomplete="off">
+      <button class="btn btn-default btn-sm" data-agir="viderLog">Vider l'affichage</button>
     </div>
     <div class="logbox" id="lg-body">En attente du flux...</div>
     <div class="hint">Flux en direct. Le filtre ne masque que l'affichage, il ne touche pas au fichier.</div>
@@ -2754,7 +2754,7 @@ a.pj:hover{border-color:var(--accent)}
         <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
         <div id="e-redemarrage-txt"></div>
         <button class="btn btn-primary btn-sm" id="e-redemarrer"
-          onclick="redemarrerDepuisConfig()">Redémarrer</button>
+          data-agir="redemarrerDepuisConfig">Redémarrer</button>
       </div>
 
       <div class="fset">
@@ -2766,7 +2766,7 @@ a.pj:hover{border-color:var(--accent)}
              gestionnaire sur certains navigateurs. -->
         <div class="logo-zone">
           <button type="button" class="logo-bouton" id="e-logo-btn"
-            onclick="logoChoisir()" title="Changer le logo">
+            data-agir="logoChoisir" title="Changer le logo">
             <img id="e-logo-img" alt="">
             <span class="logo-voile">Changer</span>
           </button>
@@ -2775,15 +2775,15 @@ a.pj:hover{border-color:var(--accent)}
             <div class="hint">Le SVG est refusé : servi par le panneau, il pourrait y
               exécuter du script.</div>
             <div class="actions" style="margin-top:10px">
-              <button class="btn btn-default btn-sm" onclick="logoChoisir()">Choisir une image</button>
+              <button class="btn btn-default btn-sm" data-agir="logoChoisir">Choisir une image</button>
               <button class="btn btn-danger-quiet btn-sm" id="e-logo-retirer"
-                onclick="logoRetirer()">Retirer</button>
+                data-agir="logoRetirer">Retirer</button>
             </div>
             <div class="err" id="e-logo-err" style="display:none"></div>
           </div>
         </div>
         <input type="file" id="e-logo-fichier" accept="image/png,image/jpeg,image/gif,image/webp"
-          style="display:none" onchange="logoEnvoyer(this)">
+          style="display:none" data-changer="logoEnvoyer">
       </div>
 
       <!-- LE NOM SE CHANGE ICI. Il ne se changeait nulle part : il fallait
@@ -2795,7 +2795,7 @@ a.pj:hover{border-color:var(--accent)}
         <div class="field"><label for="e-nom">Nom de l'application</label>
           <div class="ligne-champ">
             <input id="e-nom" autocomplete="off" spellcheck="false" maxlength="40">
-            <button class="btn btn-default" id="e-renommer" onclick="renommerApp()">Renommer</button>
+            <button class="btn btn-default" id="e-renommer" data-agir="renommerApp">Renommer</button>
           </div>
           <div class="hint">C'est aussi son adresse : <code id="e-nom-url"></code>.
             Les liens déjà partagés vers l'ancienne ne mèneront plus nulle part.</div>
@@ -2808,7 +2808,7 @@ a.pj:hover{border-color:var(--accent)}
       <div class="fset">
         <div class="fset-title">Présentation</div>
         <div class="field"><label>Description <span class="opt">facultatif</span></label>
-          <input id="e-desc" autocomplete="off" maxlength="140" placeholder="Mon site personnel" oninput="compterDescription(this)">
+          <input id="e-desc" autocomplete="off" maxlength="140" placeholder="Mon site personnel" data-saisir="compterDescription">
           <div class="hint" id="e-desc-compte">Deux lignes sous le nom, dans le hub : environ 45 caractères se voient, 140 au plus.</div></div>
         <div class="field"><label>Catégorie <span class="opt">facultatif</span></label>
           <select id="e-cat"></select>
@@ -2853,9 +2853,9 @@ a.pj:hover{border-color:var(--accent)}
         <div class="fset-title">Visibilité</div>
         <div class="field">
           <div class="seg-toggle" id="e-vis-toggle">
-            <button data-v="privee" onclick="setVisEdit('privee')">Privée</button>
-            <button data-v="locale" onclick="setVisEdit('locale')">Réseau local</button>
-            <button data-v="publique" onclick="setVisEdit('publique')">Publique</button>
+            <button data-v="privee" data-agir="setVisEdit" data-args='["privee"]'>Privée</button>
+            <button data-v="locale" data-agir="setVisEdit" data-args='["locale"]'>Réseau local</button>
+            <button data-v="publique" data-agir="setVisEdit" data-args='["publique"]'>Publique</button>
           </div>
           <div class="hint">Privée : réservée aux comptes CodeLab autorisés, la connexion est
             demandée avant d'entrer. Réseau local : ouverte sans connexion chez toi, privée depuis
@@ -2880,7 +2880,7 @@ a.pj:hover{border-color:var(--accent)}
         <div class="fset-title">Emplacement</div>
         <div class="path-row">
           <code id="e-path" class="path-cur"></code>
-          <button class="btn btn-default btn-sm" id="e-browse-btn" onclick="toggleEditBrowse()">Changer</button>
+          <button class="btn btn-default btn-sm" id="e-browse-btn" data-agir="toggleEditBrowse">Changer</button>
         </div>
         <div id="e-browse" style="display:none;margin-top:10px">
           <div class="fb"><div class="fb-cur" id="e-fb-c">/</div><div class="fb-l" id="e-fb-l"></div></div>
@@ -2888,10 +2888,10 @@ a.pj:hover{border-color:var(--accent)}
       </div>
 
       <div class="mf" style="margin:18px -18px -16px;border-radius:0 0 var(--r) var(--r)">
-        <button class="btn btn-danger-quiet" id="e-supprimer" onclick="rm(ficheNom)">Supprimer</button>
-        <button class="btn btn-default" id="e-archiver" onclick="archiver(ficheNom)">Archiver</button>
+        <button class="btn btn-danger-quiet" id="e-supprimer" data-agir="supprimerLaFiche">Supprimer</button>
+        <button class="btn btn-default" id="e-archiver" data-agir="archiverLaFiche">Archiver</button>
         <div class="spacer"></div>
-        <button class="btn btn-primary" id="e-save" onclick="submitEdit()">Enregistrer</button>
+        <button class="btn btn-primary" id="e-save" data-agir="submitEdit">Enregistrer</button>
       </div>
     </div>
   </div>
@@ -2910,12 +2910,12 @@ a.pj:hover{border-color:var(--accent)}
        chose a choisir en arrivant, et la phrase de sous-titre qui trainait
        ici ne faisait que reciter leurs noms. -->
   <div class="fiche-onglets" id="param-onglets">
-    <button data-p="compte" onclick="paramOnglet('compte')" class="active">Compte</button>
-    <button data-p="apparence" onclick="paramOnglet('apparence')">Apparence</button>
-    <button data-p="hub" onclick="paramOnglet('hub')"><span class="onglet-suite">Mon hub</span><span class="onglet-court">Hub</span></button>
-    <button data-p="securite" onclick="paramOnglet('securite')">Sécurité</button>
-    <button data-p="email" onclick="paramOnglet('email')" data-admin="1">E-mail<span class="onglet-suite"> et alertes</span></button>
-    <button data-p="aide" onclick="paramOnglet('aide')" data-admin="1">Aide</button>
+    <button data-p="compte" data-agir="paramOnglet" data-args='["compte"]' class="active">Compte</button>
+    <button data-p="apparence" data-agir="paramOnglet" data-args='["apparence"]'>Apparence</button>
+    <button data-p="hub" data-agir="paramOnglet" data-args='["hub"]'><span class="onglet-suite">Mon hub</span><span class="onglet-court">Hub</span></button>
+    <button data-p="securite" data-agir="paramOnglet" data-args='["securite"]'>Sécurité</button>
+    <button data-p="email" data-agir="paramOnglet" data-args='["email"]' data-admin="1">E-mail<span class="onglet-suite"> et alertes</span></button>
+    <button data-p="aide" data-agir="paramOnglet" data-args='["aide"]' data-admin="1">Aide</button>
   </div>
 
   <!-- UN ONGLET PAR CATEGORIE, pour tout le monde. Le compte d'administration
@@ -2941,7 +2941,7 @@ a.pj:hover{border-color:var(--accent)}
           <input id="profil-nom" maxlength="40" autocomplete="family-name"></div>
       </div>
       <div class="hint">Tu te connectes toujours avec ton identifiant, <b id="profil-identifiant"></b>.</div>
-      <div class="actions"><button class="btn btn-primary" onclick="profilEnregistrer()">Enregistrer</button></div>
+      <div class="actions"><button class="btn btn-primary" data-agir="profilEnregistrer">Enregistrer</button></div>
       <div class="err" id="profil-err" style="display:none"></div>
     </div>
   </div>
@@ -2964,15 +2964,15 @@ a.pj:hover{border-color:var(--accent)}
         <input id="mail-adresse" type="email" placeholder="moi@example.com" autocomplete="email">
       </div>
       <div class="actions">
-        <button class="btn btn-primary" id="mail-save" onclick="mailEnregistrer()">Enregistrer et vérifier</button>
-        <button class="btn btn-default" id="mail-renvoyer" onclick="mailRenvoyer()"
+        <button class="btn btn-primary" id="mail-save" data-agir="mailEnregistrer">Enregistrer et vérifier</button>
+        <button class="btn btn-default" id="mail-renvoyer" data-agir="mailRenvoyer"
           style="display:none">Renvoyer le code</button>
       </div>
 
       <div id="mail-confirmation" style="display:none">
         <div class="field" style="margin-top:14px"><label>Code reçu par mail</label>
           <input id="mail-code" inputmode="numeric" maxlength="6" placeholder="123456"></div>
-        <button class="btn btn-primary" onclick="mailConfirmer()">Confirmer</button>
+        <button class="btn btn-primary" data-agir="mailConfirmer">Confirmer</button>
       </div>
 
       <div class="err" id="mail-err" style="display:none"></div>
@@ -3008,11 +3008,11 @@ a.pj:hover{border-color:var(--accent)}
         <div class="path">Déconnecte cette session du panneau CodeLab.</div>
       </div></div>
       <div class="session-actions">
-        <button class="btn btn-danger-quiet" onclick="doLogout()">
+        <button class="btn btn-danger-quiet" data-agir="doLogout">
           <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
           <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Déconnexion</button>
         <button class="btn btn-default utilisateur-seul" id="compte-supprimer"
-          onclick="ouvrirSuppressionCompte()">Supprimer mon compte</button>
+          data-agir="ouvrirSuppressionCompte">Supprimer mon compte</button>
       </div>
       <div class="hint utilisateur-seul">Supprimer ton compte le ferme tout de suite. Ses
         données sont effacées 30 jours plus tard : d'ici là, il suffit de te reconnecter
@@ -3042,53 +3042,53 @@ a.pj:hover{border-color:var(--accent)}
       <div class="reglages-hub" id="hub-reglages" style="margin-bottom:14px">
         <div class="reglage-ligne"><span><b>Applications</b><i>Une carte avec sa description, ou l'icône seule.</i></span>
           <div class="seg-hub" role="group" aria-label="Applications">
-            <button type="button" data-r="tuiles" data-v="cartes" onclick="setHub('tuiles','cartes')">Cartes</button>
-            <button type="button" data-r="tuiles" data-v="icones" onclick="setHub('tuiles','icones')">Icônes</button></div></div>
+            <button type="button" data-r="tuiles" data-v="cartes" data-agir="setHub" data-args='["tuiles", "cartes"]'>Cartes</button>
+            <button type="button" data-r="tuiles" data-v="icones" data-agir="setHub" data-args='["tuiles", "icones"]'>Icônes</button></div></div>
         <div class="reglage-ligne"><span><b>Défilement</b><i>Sur un écran en paysage. Le téléphone et la tablette en portrait défilent toujours vers le bas.</i></span>
           <div class="seg-hub" role="group" aria-label="Défilement">
-            <button type="button" data-r="defilement" data-v="horizontal" onclick="setHub('defilement','horizontal')">Horizontal</button>
-            <button type="button" data-r="defilement" data-v="vertical" onclick="setHub('defilement','vertical')">Vertical</button></div></div>
+            <button type="button" data-r="defilement" data-v="horizontal" data-agir="setHub" data-args='["defilement", "horizontal"]'>Horizontal</button>
+            <button type="button" data-r="defilement" data-v="vertical" data-agir="setHub" data-args='["defilement", "vertical"]'>Vertical</button></div></div>
         <div class="reglage-ligne"><span><b>Widgets</b><i>Parmi les applications, ou tous au-dessus.</i></span>
           <div class="seg-hub" role="group" aria-label="Widgets">
-            <button type="button" data-r="widgets" data-v="melanges" onclick="setHub('widgets','melanges')">Mêlés</button>
-            <button type="button" data-r="widgets" data-v="haut" onclick="setHub('widgets','haut')">En haut</button></div></div>
+            <button type="button" data-r="widgets" data-v="melanges" data-agir="setHub" data-args='["widgets", "melanges"]'>Mêlés</button>
+            <button type="button" data-r="widgets" data-v="haut" data-agir="setHub" data-args='["widgets", "haut"]'>En haut</button></div></div>
         <div class="reglage-ligne reglage-couleurs"><span><b>Couleurs</b><i>La teinte des boutons, des liens et de l'onglet actif, en clair comme en sombre.</i></span>
           <div class="nuancier" role="group" aria-label="Couleurs">
-            <button type="button" data-r="couleurs" data-v="lagon" onclick="setHub('couleurs','lagon')" title="Lagon"><i style="background:#0E7C86"></i>Lagon</button>
-            <button type="button" data-r="couleurs" data-v="ocean" onclick="setHub('couleurs','ocean')" title="Océan"><i style="background:#2563EB"></i>Océan</button>
-            <button type="button" data-r="couleurs" data-v="foret" onclick="setHub('couleurs','foret')" title="Forêt"><i style="background:#2F7D4F"></i>Forêt</button>
-            <button type="button" data-r="couleurs" data-v="prune" onclick="setHub('couleurs','prune')" title="Prune"><i style="background:#7C3AED"></i>Prune</button>
-            <button type="button" data-r="couleurs" data-v="corail" onclick="setHub('couleurs','corail')" title="Corail"><i style="background:#D9480F"></i>Corail</button>
-            <button type="button" data-r="couleurs" data-v="ardoise" onclick="setHub('couleurs','ardoise')" title="Ardoise"><i style="background:#334155"></i>Ardoise</button>
-            <button type="button" data-r="couleurs" data-v="framboise" onclick="setHub('couleurs','framboise')" title="Framboise"><i style="background:#C2255C"></i>Framboise</button>
-            <button type="button" data-r="couleurs" data-v="ambre" onclick="setHub('couleurs','ambre')" title="Ambre"><i style="background:#B45309"></i>Ambre</button>
-            <button type="button" data-r="couleurs" data-v="indigo" onclick="setHub('couleurs','indigo')" title="Indigo"><i style="background:#4F46E5"></i>Indigo</button>
-            <button type="button" data-r="couleurs" data-v="olive" onclick="setHub('couleurs','olive')" title="Olive"><i style="background:#4D7C0F"></i>Olive</button>
+            <button type="button" data-r="couleurs" data-v="lagon" data-agir="setHub" data-args='["couleurs", "lagon"]' title="Lagon"><i style="background:#0E7C86"></i>Lagon</button>
+            <button type="button" data-r="couleurs" data-v="ocean" data-agir="setHub" data-args='["couleurs", "ocean"]' title="Océan"><i style="background:#2563EB"></i>Océan</button>
+            <button type="button" data-r="couleurs" data-v="foret" data-agir="setHub" data-args='["couleurs", "foret"]' title="Forêt"><i style="background:#2F7D4F"></i>Forêt</button>
+            <button type="button" data-r="couleurs" data-v="prune" data-agir="setHub" data-args='["couleurs", "prune"]' title="Prune"><i style="background:#7C3AED"></i>Prune</button>
+            <button type="button" data-r="couleurs" data-v="corail" data-agir="setHub" data-args='["couleurs", "corail"]' title="Corail"><i style="background:#D9480F"></i>Corail</button>
+            <button type="button" data-r="couleurs" data-v="ardoise" data-agir="setHub" data-args='["couleurs", "ardoise"]' title="Ardoise"><i style="background:#334155"></i>Ardoise</button>
+            <button type="button" data-r="couleurs" data-v="framboise" data-agir="setHub" data-args='["couleurs", "framboise"]' title="Framboise"><i style="background:#C2255C"></i>Framboise</button>
+            <button type="button" data-r="couleurs" data-v="ambre" data-agir="setHub" data-args='["couleurs", "ambre"]' title="Ambre"><i style="background:#B45309"></i>Ambre</button>
+            <button type="button" data-r="couleurs" data-v="indigo" data-agir="setHub" data-args='["couleurs", "indigo"]' title="Indigo"><i style="background:#4F46E5"></i>Indigo</button>
+            <button type="button" data-r="couleurs" data-v="olive" data-agir="setHub" data-args='["couleurs", "olive"]' title="Olive"><i style="background:#4D7C0F"></i>Olive</button>
             <!-- LA COULEUR PERSONNALISEE : le selecteur du systeme, sous la
                  pastille. La palette (clair, sombre, survol, texte dessus) est
                  calculee par le serveur (/couleur.css). -->
             <label class="nuancier-perso" data-r="couleurs" data-v="perso" title="Personnalisée">
               <i id="couleur-perso-pastille"></i>Personnalisée
               <input type="color" id="couleur-perso-choix" value="#0E7C86"
-                oninput="choisirCouleurPerso(this.value)" onclick="revenirCouleurPerso()"
+                data-saisir="choisirCouleurPerso" data-agir="revenirCouleurPerso"
                 aria-label="Choisir une couleur"></label>
           </div></div>
       </div>
       <div class="choix-titre">Thème</div>
       <div class="choix-liste" id="theme-toggle">
-        <button data-t="auto" onclick="setTheme('auto')">
+        <button data-t="auto" data-agir="setTheme" data-args='["auto"]'>
           <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/>
           <path d="M8 21h8M12 17v4"/></svg>
           <span><b>Automatique</b><i>Suit le réglage de ton système.</i></span>
           <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
         </button>
-        <button data-t="light" onclick="setTheme('light')">
+        <button data-t="light" data-agir="setTheme" data-args='["light"]'>
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/>
           <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg>
           <span><b>Clair</b><i>Fond blanc, en toutes circonstances.</i></span>
           <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
         </button>
-        <button data-t="dark" onclick="setTheme('dark')">
+        <button data-t="dark" data-agir="setTheme" data-args='["dark"]'>
           <svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
           <span><b>Sombre</b><i>Fond sombre, en toutes circonstances.</i></span>
           <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
@@ -3108,11 +3108,11 @@ a.pj:hover{border-color:var(--accent)}
         <b id="notif-titre">Notifications</b>
         <div class="path" id="notif-quoi">Sur cet appareil, même CodeLab fermé.</div>
       </div>
-      <label class="interrupteur" onclick="event.stopPropagation()" title="Activer ou désactiver">
-        <input type="checkbox" id="notif-bascule" onchange="notifBasculer(this)"
+      <label class="interrupteur" title="Activer ou désactiver">
+        <input type="checkbox" id="notif-bascule" data-changer="notifBasculer"
                aria-labelledby="notif-titre"><span></span></label></div>
       <div class="hint" id="notif-empechement" style="display:none"></div>
-      <button class="btn btn-default" id="notif-essai" onclick="notifEssai(this)"
+      <button class="btn btn-default" id="notif-essai" data-agir="notifEssai"
               style="display:none;margin-top:12px;align-self:flex-start">Envoyer une notification d'essai</button>
     </div>
   </div>
@@ -3127,7 +3127,7 @@ a.pj:hover{border-color:var(--accent)}
         <b>Installer CodeLab</b>
         <div class="path">Une icône sur l'écran d'accueil ou dans le Dock : CodeLab s'ouvre en plein écran, comme une application.</div>
       </div>
-      <button class="btn btn-primary" id="inst-bouton" onclick="installerCodelab()" style="display:none">Installer</button></div>
+      <button class="btn btn-primary" id="inst-bouton" data-agir="installerCodelab" style="display:none">Installer</button></div>
       <div class="hint" id="inst-consigne" style="display:none;margin-top:12px"></div>
     </div>
   </div>
@@ -3161,12 +3161,12 @@ a.pj:hover{border-color:var(--accent)}
 
       <div class="cat-ligne">
         <input id="cat-neuve" placeholder="Outils" autocomplete="off" maxlength="30"
-          onkeydown="if(event.key==='Enter'){event.preventDefault();catAjouter()}">
-        <button class="btn btn-default" onclick="catAjouter()">Ajouter</button>
+          data-entree="catAjouter">
+        <button class="btn btn-default" data-agir="catAjouter">Ajouter</button>
       </div>
 
       <div class="actions">
-        <button class="btn btn-primary" id="cat-save" onclick="catEnregistrer()">Enregistrer</button>
+        <button class="btn btn-primary" id="cat-save" data-agir="catEnregistrer">Enregistrer</button>
       </div>
       <div class="err" id="cat-err" style="display:none"></div>
       <div class="hint" id="cat-msg" style="display:none"></div>
@@ -3201,7 +3201,7 @@ a.pj:hover{border-color:var(--accent)}
           <input id="mdp-repeter" type="password" autocomplete="new-password"></div>
       </div>
       <div class="actions">
-        <button class="btn btn-primary" id="mdp-save" onclick="mdpChanger()">Changer</button>
+        <button class="btn btn-primary" id="mdp-save" data-agir="mdpChanger">Changer</button>
       </div>
       <div class="err" id="mdp-err" style="display:none"></div>
       <div class="hint" id="mdp-msg" style="display:none"></div>
@@ -3221,7 +3221,7 @@ a.pj:hover{border-color:var(--accent)}
       <div class="hint" id="totp-pourquoi">Obligatoire pour l'administrateur. Téléphone perdu : <code>APP_MANAGER_ADMIN_2FA: "0"</code> dans le compose.</div>
 
       <div id="totp-etape-1" style="display:none">
-        <button class="btn btn-primary" onclick="totpPreparer()">Activer</button>
+        <button class="btn btn-primary" data-agir="totpPreparer">Activer</button>
       </div>
 
       <div id="totp-etape-2" style="display:none">
@@ -3230,12 +3230,12 @@ a.pj:hover{border-color:var(--accent)}
              a recopier reste : l'inscription ne depend pas de lui. -->
         <img class="qr" id="totp-qr" alt="QR code du second facteur">
         <div class="hint">Ou saisis la clé à la main :</div>
-        <div class="field"><input id="totp-secret" readonly onclick="this.select()"></div>
+        <div class="field"><input id="totp-secret" readonly data-agir="selectionner"></div>
         <div class="hint">2. Saisis le code affiché par l'application.</div>
         <div class="field"><input id="totp-code" inputmode="numeric" maxlength="6" placeholder="123456"></div>
         <div class="actions">
-          <button class="btn btn-primary" onclick="totpActiver()">Confirmer</button>
-          <button class="btn btn-default" onclick="totpAnnuler()">Annuler</button>
+          <button class="btn btn-primary" data-agir="totpActiver">Confirmer</button>
+          <button class="btn btn-default" data-agir="totpAnnuler">Annuler</button>
         </div>
         <div class="err" id="totp-err" style="display:none"></div>
       </div>
@@ -3247,7 +3247,7 @@ a.pj:hover{border-color:var(--accent)}
           <div class="hint">Pour désactiver, saisis un code valide : une session volée ne doit pas
             pouvoir retirer le second facteur.</div>
           <div class="ligne-champ"><input id="totp-code-off" inputmode="numeric" maxlength="6" placeholder="123456">
-            <button class="btn btn-default" onclick="totpDesactiver()">Désactiver</button></div>
+            <button class="btn btn-default" data-agir="totpDesactiver">Désactiver</button></div>
           <div class="err" id="totp-err-off" style="display:none"></div>
         </div>
         <div class="hint" id="totp-retrait-impossible" style="display:none">C'est ton seul second
@@ -3268,7 +3268,7 @@ a.pj:hover{border-color:var(--accent)}
       </div></div>
       <div class="ap-liste" id="ap-liste"><div class="squelette" role="status" aria-label="Chargement"><i></i><i></i><i></i></div></div>
       <div class="actions" style="margin-top:12px">
-        <button class="btn btn-default btn-sm" id="ap-autres" onclick="apDeconnecterAutres()">Déconnecter les autres appareils</button>
+        <button class="btn btn-default btn-sm" id="ap-autres" data-agir="apDeconnecterAutres">Déconnecter les autres appareils</button>
       </div>
     </div>
   </div>
@@ -3283,8 +3283,8 @@ a.pj:hover{border-color:var(--accent)}
       <!-- L'interrupteur dit l'etat et le change : allume, cet appareil est
            enregistre ; eteint, toutes les cles du compte sont retirees. Le
            clic ne replie pas la carte. -->
-      <label class="interrupteur" onclick="event.stopPropagation()" title="Activer ou désactiver">
-        <input type="checkbox" id="pk-bascule" onchange="pkBasculer(this)"
+      <label class="interrupteur" title="Activer ou désactiver">
+        <input type="checkbox" id="pk-bascule" data-changer="pkBasculer"
                aria-labelledby="pk-titre"><span></span></label></div>
 
       <div class="hint" id="pk-empechement" style="display:none"></div>
@@ -3294,7 +3294,7 @@ a.pj:hover{border-color:var(--accent)}
       <!-- Le nom de la cle suit l'appareil (Face ID, Touch ID...) : plus de
            champ a remplir. -->
       <input type="hidden" id="pk-nom">
-      <button class="btn btn-default" id="pk-ajouter" onclick="pkAjouter()"
+      <button class="btn btn-default" id="pk-ajouter" data-agir="pkAjouter"
               style="display:none;margin-top:12px;align-self:flex-start">Ajouter un autre appareil</button>
       <div class="err" id="pk-err" style="display:none"></div>
       <div class="hint" id="pk-msg" style="display:none"></div>
@@ -3319,7 +3319,7 @@ a.pj:hover{border-color:var(--accent)}
       </div>
       <div class="sg-liste" id="sg-liste"></div>
       <label class="choix-ligne" style="margin-top:12px"><input type="checkbox" id="sg-externe"
-        onchange="sgCopieExterne(this.checked)"> Je copie déjà ce dossier ailleurs, par mes propres moyens</label>
+        data-changer="sgCopieExterne"> Je copie déjà ce dossier ailleurs, par mes propres moyens</label>
     </div>
   </div>
 
@@ -3338,21 +3338,21 @@ a.pj:hover{border-color:var(--accent)}
         <b id="tunnel-titre">Tailscale Funnel</b>
         <div class="path">Une adresse fixe en https, gratuite, sans rien ouvrir sur la box.</div>
       </div>
-      <label class="interrupteur" onclick="event.stopPropagation()" title="Activer ou désactiver">
-        <input type="checkbox" id="tunnel-bascule" onchange="tunnelBasculer(this)"
+      <label class="interrupteur" title="Activer ou désactiver">
+        <input type="checkbox" id="tunnel-bascule" data-changer="tunnelBasculer"
                aria-labelledby="tunnel-titre"><span></span></label></div>
       <div class="hint" id="tunnel-etat"></div>
       <div class="err" id="tunnel-erreur" style="display:none"></div>
       <div id="tunnel-adresses" hidden>
         <div class="field" style="margin-top:12px"><label for="tunnel-panneau">Adresse du panneau</label>
-          <input id="tunnel-panneau" readonly onclick="this.select()"></div>
+          <input id="tunnel-panneau" readonly data-agir="selectionner"></div>
         <!-- Le QR code sur demande : l'adresse se copie du champ, et un code
              affiche d'office prenait la moitie de la carte. -->
-        <button class="btn btn-default" id="tunnel-qr-bouton" onclick="tunnelQr()"
+        <button class="btn btn-default" id="tunnel-qr-bouton" data-agir="tunnelQr"
                 style="margin:12px 0 14px;align-self:flex-start" aria-expanded="false">Afficher le QR code</button>
         <img class="qr" id="tunnel-qr" alt="QR code de l'adresse du panneau">
         <div class="field"><label for="tunnel-apps">Adresse des applications</label>
-          <input id="tunnel-apps" readonly onclick="this.select()"></div>
+          <input id="tunnel-apps" readonly data-agir="selectionner"></div>
       </div>
       <div class="hint" style="margin-top:12px">Une fois, sur tailscale.com (compte gratuit) :
         active <i>HTTPS</i> (DNS), autorise <i>Funnel</i> (Access controls), puis crée une clé
@@ -3363,7 +3363,7 @@ a.pj:hover{border-color:var(--accent)}
                  placeholder="tskey-auth-…"></div>
         <div class="field"><label for="tunnel-nom">Nom de la machine</label>
           <input id="tunnel-nom" placeholder="codelab" autocapitalize="off" spellcheck="false"
-                 oninput="tunnelApercu()"></div>
+                 data-saisir="tunnelApercu"></div>
       </div>
       <!-- L'ADRESSE FINALE, telle qu'elle sera : le nom de la machine, puis
            celui du reseau Tailscale (connu apres la premiere connexion).
@@ -3371,8 +3371,8 @@ a.pj:hover{border-color:var(--accent)}
            final ». -->
       <div class="hint">Ton adresse : <b id="tunnel-apercu"></b></div>
       <div class="actions">
-        <button class="btn btn-primary" id="tunnel-save" onclick="tunnelEnregistrer()">Enregistrer</button>
-        <button class="btn btn-default" id="tunnel-deconnecter" onclick="tunnelDeconnecter()" hidden>Déconnecter la machine</button>
+        <button class="btn btn-primary" id="tunnel-save" data-agir="tunnelEnregistrer">Enregistrer</button>
+        <button class="btn btn-default" id="tunnel-deconnecter" data-agir="tunnelDeconnecter" hidden>Déconnecter la machine</button>
       </div>
       <div class="hint">Les comptes utilisateurs s'y connectent, Face ID compris ; l'administration
         reste réservée au réseau local. Une application publique devient visible de tout internet.</div>
@@ -3388,7 +3388,7 @@ a.pj:hover{border-color:var(--accent)}
       </div></div>
       <div class="field" style="margin-top:12px">
         <label for="cj-mois">Garder le journal</label>
-        <select id="cj-mois" onchange="cjChanger(this)">
+        <select id="cj-mois" data-changer="cjChanger">
           <option value="3">3 mois</option>
           <option value="6">6 mois</option>
           <option value="12">12 mois (recommandé)</option>
@@ -3403,11 +3403,6 @@ a.pj:hover{border-color:var(--accent)}
   </div>
   </div>
 
-  <!-- SERVEUR : UNE SEULE CARTE. Trois cartes (proxy et HTTPS, VPS, adresse
-       publique) decrivaient la meme chose -- rendre le panneau joignable
-       depuis internet -- et obligeaient a comprendre les trois pour en
-       regler une. On ne voit d'abord que l'adresse ; le VPS et les cases
-       techniques se deplient quand on en a besoin. -->
   <!-- LE SERVEUR D'ENVOI ET LES ALERTES SONT DEUX CHOSES. Le premier est une
        fourniture partagee : il porte les alertes, mais aussi les codes de
        verification d'adresse et les invitations. Les secondes n'en sont
@@ -3437,9 +3432,9 @@ a.pj:hover{border-color:var(--accent)}
       <div class="grid2">
         <div class="field"><label>Chiffrement</label>
           <div class="seg-toggle" id="al-tls-toggle">
-            <button data-t="starttls" onclick="alSetTls('starttls')">STARTTLS</button>
-            <button data-t="ssl" onclick="alSetTls('ssl')">SSL</button>
-            <button data-t="none" onclick="alSetTls('none')">Aucun</button>
+            <button data-t="starttls" data-agir="alSetTls" data-args='["starttls"]'>STARTTLS</button>
+            <button data-t="ssl" data-agir="alSetTls" data-args='["ssl"]'>SSL</button>
+            <button data-t="none" data-agir="alSetTls" data-args='["none"]'>Aucun</button>
           </div></div>
         <div class="field"><label>Identifiant</label>
           <input id="al-user" placeholder="moi@gmail.com" autocomplete="off"></div>
@@ -3451,7 +3446,7 @@ a.pj:hover{border-color:var(--accent)}
       </div>
 
       <div class="actions">
-        <button class="btn btn-primary" id="sm-save" onclick="alEnregistrer('sm')">Vérifier et enregistrer</button>
+        <button class="btn btn-primary" id="sm-save" data-agir="alEnregistrer" data-args='["sm"]'>Vérifier et enregistrer</button>
       </div>
       <div class="err" id="sm-err" style="display:none"></div>
       <div class="hint" id="sm-msg" style="display:none"></div>
@@ -3478,8 +3473,8 @@ a.pj:hover{border-color:var(--accent)}
         <div class="hint">Séparées par des virgules. Elles reçoivent les alertes de toutes les applications.</div>
       </div>
       <div class="actions">
-        <button class="btn btn-primary" id="adm-save" onclick="alEnregistrer('adm')">Enregistrer</button>
-        <button class="btn btn-default" id="al-toggle" onclick="alBasculer()">Activer</button>
+        <button class="btn btn-primary" id="adm-save" data-agir="alEnregistrer" data-args='["adm"]'>Enregistrer</button>
+        <button class="btn btn-default" id="al-toggle" data-agir="alBasculer">Activer</button>
       </div>
       <div class="err" id="adm-err" style="display:none"></div>
       <div class="hint" id="adm-msg" style="display:none"></div>
@@ -3500,7 +3495,7 @@ a.pj:hover{border-color:var(--accent)}
           pour vérifier qu'elle répond.</div>
       </div>
       <div class="actions">
-        <button class="btn btn-primary" id="sv-save" onclick="svEnregistrer()">Enregistrer</button>
+        <button class="btn btn-primary" id="sv-save" data-agir="svEnregistrer">Enregistrer</button>
       </div>
       <div class="err" id="sv-err" style="display:none"></div>
       <div class="hint" id="sv-msg" style="display:none"></div>
@@ -3573,7 +3568,7 @@ a.pj:hover{border-color:var(--accent)}
 
       <div id="msg-form" style="margin-top:14px">
         <div class="field"><label for="msg-cible">C'est pour…</label>
-          <select id="msg-cible" onchange="msgCible()">
+          <select id="msg-cible" data-changer="msgCible">
             <option value="hub">Améliorer le hub</option>
             <option value="idee">Une idée de nouveau projet</option>
             <option value="application">Améliorer une application existante</option>
@@ -3589,14 +3584,14 @@ a.pj:hover{border-color:var(--accent)}
           <div class="msg-pied">
             <label class="btn btn-default joindre">
               <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf" multiple
-                     onchange="deposerPieces('form', this.files); this.value=''">
+                     data-changer="deposerLesPieces" data-args='["form"]'>
               <svg viewBox="0 0 24 24"><path d="M21 11.5l-8.6 8.6a5 5 0 01-7.1-7.1l8.6-8.6a3.3 3.3 0 014.7 4.7l-8.6 8.6a1.7 1.7 0 01-2.4-2.4l7.9-7.9"/></svg>
               Joindre une image ou un PDF</label>
             <span class="hint" style="margin:0">ou colle une capture dans le message.</span>
           </div>
           <div class="pj-liste" id="pj-form" style="margin-top:10px"></div></div>
         <div class="actions">
-          <button class="btn btn-primary" id="msg-envoyer" onclick="msgEnvoyer()">Envoyer</button>
+          <button class="btn btn-primary" id="msg-envoyer" data-agir="msgEnvoyer">Envoyer</button>
         </div>
         <div class="err" id="msg-err" style="display:none"></div>
         <div class="hint" id="msg-ok" style="display:none"></div>
@@ -3628,10 +3623,10 @@ a.pj:hover{border-color:var(--accent)}
         <div class="path">Chacun n'ouvre que les projets privés que tu lui autorises.</div>
       </div>
       <div class="spacer"></div>
-      <button class="btn btn-primary btn-sm" id="inv-ouvrir" onclick="invFormulaire(true)">Inviter quelqu'un</button></div>
+      <button class="btn btn-primary btn-sm" id="inv-ouvrir" data-agir="invFormulaire" data-args='[true]'>Inviter quelqu'un</button></div>
 
       <div class="hint smtp-requis" id="us-smtp-requis" style="display:none;margin-top:12px">
-        Règle d'abord un <a href="/parametres/email" onclick="event.preventDefault();smtpRegler()">serveur
+        Règle d'abord un <a href="/parametres/email" data-agir="smtpRegler">serveur
         d'envoi</a> : sans lui, personne ne peut recevoir son invitation ni ses codes de connexion.</div>
 
       <!-- INVITER, C'EST DONNER UNE ADRESSE. La personne recoit un lien et
@@ -3641,16 +3636,16 @@ a.pj:hover{border-color:var(--accent)}
         <div class="mb-titre">Inviter quelqu'un</div>
         <div class="field"><label>Adresse mail</label>
           <input id="inv-mail" type="email" placeholder="marie@example.com" autocomplete="off"
-            onkeydown="if(event.key==='Enter') invEnvoyer()">
+            data-entree="invEnvoyer">
           <div class="hint">La personne reçoit un lien pour choisir son nom et son mot de passe (valable 7 jours).</div>
         </div>
         <div class="actions">
-          <button class="btn btn-primary" id="inv-envoyer" onclick="invEnvoyer()">Envoyer l'invitation</button>
-          <button class="btn btn-default" onclick="invFormulaire(false)">Annuler</button>
+          <button class="btn btn-primary" id="inv-envoyer" data-agir="invEnvoyer">Envoyer l'invitation</button>
+          <button class="btn btn-default" data-agir="invFormulaire" data-args='[false]'>Annuler</button>
         </div>
         <div class="err" id="inv-err" style="display:none"></div>
         <div id="inv-resultat" style="display:none;margin-top:12px"></div>
-        <div class="hint" style="margin-top:10px">Ou <a href="#" onclick="event.preventDefault();invFormulaire(false);usFormulaire(true)">crée
+        <div class="hint" style="margin-top:10px">Ou <a href="#" data-agir="creerSansInviter">crée
           le compte toi-même</a>, avec un mot de passe que tu lui transmettras.</div>
       </div>
 
@@ -3666,7 +3661,7 @@ a.pj:hover{border-color:var(--accent)}
         <div class="field" style="flex:2 1 220px;margin:0">
           <label for="us-q">Rechercher</label>
           <input id="us-q" placeholder="nom ou adresse mail" autocomplete="off"
-            oninput="usFiltrer()"></div>
+            data-saisir="usFiltrer"></div>
       </div>
 
       <div id="us-liste" style="margin-top:14px"></div>
@@ -3698,8 +3693,8 @@ a.pj:hover{border-color:var(--accent)}
             connais jamais la clé de quelqu'un d'autre.</div>
         </div>
         <div class="actions">
-          <button class="btn btn-primary" id="us-creer" onclick="usCreer()">Créer le compte</button>
-          <button class="btn btn-default" onclick="usFormulaire(false)">Annuler</button>
+          <button class="btn btn-primary" id="us-creer" data-agir="usCreer">Créer le compte</button>
+          <button class="btn btn-default" data-agir="usFormulaire" data-args='[false]'>Annuler</button>
         </div>
         <div class="err" id="us-err" style="display:none"></div>
       </div>
@@ -3713,14 +3708,14 @@ a.pj:hover{border-color:var(--accent)}
         application a été ouverte.</div>
       <div class="field" style="flex:0 0 190px;margin:0">
         <label for="ac-genre">Afficher</label>
-        <select id="ac-genre" onchange="acGenre()">
+        <select id="ac-genre" data-changer="acGenre">
           <option value="connexions">Connexions et refus</option>
           <option value="ouvertures">Ouvertures d'applications</option>
           <option value="tout">Tout</option>
         </select></div>
       <div class="field" style="flex:0 0 100px;margin:0">
         <label for="ac-taille">Par page</label>
-        <select id="ac-taille" onchange="acTaille()">
+        <select id="ac-taille" data-changer="acTaille">
           <option value="10">10</option>
           <option value="25">25</option>
           <option value="50">50</option>
@@ -3728,9 +3723,9 @@ a.pj:hover{border-color:var(--accent)}
     </div>
     <div id="ac-connexions"></div>
     <div class="us-pages" id="ac-pagination" style="display:none">
-      <button class="btn btn-default btn-sm" id="ac-prec" onclick="acAllerA(acPage-1)">Précédent</button>
+      <button class="btn btn-default btn-sm" id="ac-prec" data-agir="acPrecedente">Précédent</button>
       <span class="hint" id="ac-compte"></span>
-      <button class="btn btn-default btn-sm" id="ac-suiv" onclick="acAllerA(acPage+1)">Suivant</button>
+      <button class="btn btn-default btn-sm" id="ac-suiv" data-agir="acSuivante">Suivant</button>
     </div>
   </div>
 </div>
@@ -3752,8 +3747,8 @@ a.pj:hover{border-color:var(--accent)}
 <div class="ov" id="ov-confirm"><div class="modal" style="max-width:440px">
   <div class="mh"><h3 id="cf-titre"></h3><p id="cf-texte"></p></div>
   <div class="mf">
-    <button class="btn btn-default" onclick="confirmerReponse(false)">Annuler</button>
-    <button class="btn btn-primary" id="cf-ok" onclick="confirmerReponse(true)">Confirmer</button>
+    <button class="btn btn-default" data-agir="confirmerReponse" data-args='[false]'>Annuler</button>
+    <button class="btn btn-primary" id="cf-ok" data-agir="confirmerReponse" data-args='[true]'>Confirmer</button>
   </div>
 </div></div>
 
@@ -3767,12 +3762,12 @@ a.pj:hover{border-color:var(--accent)}
   <div class="mb">
     <div class="field"><label for="sup-mdp">Ton mot de passe</label>
       <input id="sup-mdp" type="password" autocomplete="current-password"
-        onkeydown="if(event.key==='Enter') confirmerSuppressionCompte()"></div>
+        data-entree="confirmerSuppressionCompte"></div>
     <div class="err" id="sup-err" style="display:none"></div>
   </div>
   <div class="mf">
-    <button class="btn btn-default" onclick="hide('ov-suppression')">Annuler</button>
-    <button class="btn btn-default danger" id="sup-ok" onclick="confirmerSuppressionCompte()">Supprimer mon compte</button>
+    <button class="btn btn-default" data-agir="hide" data-args='["ov-suppression"]'>Annuler</button>
+    <button class="btn btn-default danger" id="sup-ok" data-agir="confirmerSuppressionCompte">Supprimer mon compte</button>
   </div>
 </div></div>
 
@@ -3785,8 +3780,8 @@ a.pj:hover{border-color:var(--accent)}
       recopier. Tu pourras le retirer à tout moment dans Paramètres &gt; Sécurité.</p></div>
   <div class="mb"><div class="err" id="fid-err" style="display:none"></div></div>
   <div class="mf">
-    <button class="btn btn-default" onclick="faceIdPlusTard()">Plus tard</button>
-    <button class="btn btn-primary" id="fid-ok" onclick="faceIdActiver()">Activer</button>
+    <button class="btn btn-default" data-agir="faceIdPlusTard">Plus tard</button>
+    <button class="btn btn-primary" id="fid-ok" data-agir="faceIdActiver">Activer</button>
   </div>
 </div></div>
 
@@ -3799,8 +3794,8 @@ a.pj:hover{border-color:var(--accent)}
       ou de créer un compte : chacun reçoit son invitation et ses codes de connexion par e-mail.
       Les alertes partent aussi par là.</p></div>
   <div class="mf">
-    <button class="btn btn-default" onclick="smtpPlusTard()">Plus tard</button>
-    <button class="btn btn-primary" onclick="smtpRegler()">Régler maintenant</button>
+    <button class="btn btn-default" data-agir="smtpPlusTard">Plus tard</button>
+    <button class="btn btn-primary" data-agir="smtpRegler">Régler maintenant</button>
   </div>
 </div></div>
 
@@ -3810,7 +3805,7 @@ a.pj:hover{border-color:var(--accent)}
 <div class="hors-ligne" id="hors-ligne" role="status" hidden>
   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 8.8a15 15 0 0 1 20 0M5 12.6a10 10 0 0 1 14 0M8.5 16.3a5 5 0 0 1 7 0M12 20h.01"/><path d="M3 3l18 18"/></svg>
   <span id="hors-ligne-texte">Serveur injoignable.</span>
-  <button type="button" onclick="essayerConnexion()">Réessayer</button>
+  <button type="button" data-agir="essayerConnexion">Réessayer</button>
 </div>
 
 <!-- ==================== POP-UP : FICHE D'UN COMPTE ==================== -->
@@ -3853,8 +3848,8 @@ a.pj:hover{border-color:var(--accent)}
       <div class="mb-titre">Moyens de connexion</div>
       <div class="hint" id="us-f-facteurs"></div>
       <div class="actions">
-        <button class="btn btn-default btn-sm" id="us-f-totp" onclick="usReinitTotp()">Réinitialiser le second facteur</button>
-        <button class="btn btn-default btn-sm" id="us-f-cles" onclick="usRetirerCles()">Retirer les clés d'accès</button>
+        <button class="btn btn-default btn-sm" id="us-f-totp" data-agir="usReinitTotp">Réinitialiser le second facteur</button>
+        <button class="btn btn-default btn-sm" id="us-f-cles" data-agir="usRetirerCles">Retirer les clés d'accès</button>
       </div>
     </div>
 
@@ -3862,7 +3857,7 @@ a.pj:hover{border-color:var(--accent)}
       <div class="mb-titre">Appareils connectés</div>
       <div class="hint" id="us-f-appareils">—</div>
       <div class="actions">
-        <button class="btn btn-default btn-sm" id="us-f-deconnecter" onclick="usDeconnecterAppareils()">Déconnecter tous ses appareils</button>
+        <button class="btn btn-default btn-sm" id="us-f-deconnecter" data-agir="usDeconnecterAppareils">Déconnecter tous ses appareils</button>
       </div>
     </div>
 
@@ -3875,8 +3870,8 @@ a.pj:hover{border-color:var(--accent)}
       <div class="ligne-champ">
         <div class="hint" id="us-f-suspendu-etat" style="flex:1"></div>
         <button class="btn btn-default btn-sm" id="us-f-suspendre"
-          onclick="usSuspendre()">Suspendre</button>
-        <button class="btn btn-default danger btn-sm" onclick="usSupprimer()">Supprimer</button>
+          data-agir="usSuspendre">Suspendre</button>
+        <button class="btn btn-default danger btn-sm" data-agir="usSupprimer">Supprimer</button>
       </div>
       <details class="repli"><summary>La différence entre les deux</summary>
         <div class="hint">Suspendre ferme l'accès tout de suite et garde tout en l'état.</div>
@@ -3886,8 +3881,8 @@ a.pj:hover{border-color:var(--accent)}
     </div>
   </div>
   <div class="mf">
-    <button class="btn btn-default" onclick="hide('ov-user')">Annuler</button>
-    <button class="btn btn-primary" id="us-f-save" onclick="usEnregistrer()">Enregistrer</button>
+    <button class="btn btn-default" data-agir="hide" data-args='["ov-user"]'>Annuler</button>
+    <button class="btn btn-primary" id="us-f-save" data-agir="usEnregistrer">Enregistrer</button>
   </div>
 </div></div>
 
@@ -3898,7 +3893,7 @@ a.pj:hover{border-color:var(--accent)}
   <div class="mh"><h3>Ajouter un widget</h3><p>Des widgets sur le hub, ou sur une de tes applications.</p></div>
   <div class="mb galerie-corps"><nav class="galerie-liste" id="galerie-liste" aria-label="Widgets"></nav>
     <div class="galerie-detail" id="galerie-detail"></div></div>
-  <div class="mf"><div class="spacer"></div><button class="btn btn-default" onclick="hide('ov-galerie')">Fermer</button></div>
+  <div class="mf"><div class="spacer"></div><button class="btn btn-default" data-agir="hide" data-args='["ov-galerie"]'>Fermer</button></div>
 </div></div>
 
 <!-- La video de presentation d'une application : le lecteur du navigateur
@@ -3914,7 +3909,7 @@ a.pj:hover{border-color:var(--accent)}
   <div class="presentation-pied">
     <img id="pr-icone" alt="">
     <div class="txt"><b id="pr-nom"></b><span id="pr-desc"></span></div>
-    <button class="btn btn-default" onclick="fermerPresentation()">Fermer</button>
+    <button class="btn btn-default" data-agir="fermerPresentation">Fermer</button>
     <a class="btn btn-primary" id="pr-ouvrir" href="#">Ouvrir l'application</a>
   </div>
 </div></div>
@@ -3923,17 +3918,17 @@ a.pj:hover{border-color:var(--accent)}
   <div class="mh"><h3>Nouvelle application</h3>
     <p>Un dossier de <code id="a-s"></code>, une commande de lancement, et c'est en ligne.
       Pas encore de dossier ? <code>codelab create &lt;nom&gt;</code> dans le poste de développement
-      (<a href="#" onclick="hide('ov-add');ouvrirAide();return false">les commandes</a>).</p></div>
+      (<a href="#" data-agir="aideDepuisAjout">les commandes</a>).</p></div>
   <div class="mb"><div class="alert" id="a-e"></div>
     <div class="field"><label>Nom</label>
       <input id="f-name" placeholder="portfolio" autocomplete="off">
       <div class="hint">Accessible sur <code id="f-url">/nom/</code></div></div>
     <div class="field"><label>Description <span class="opt">facultatif</span></label>
-      <input id="f-desc" placeholder="Mon site personnel" autocomplete="off" maxlength="140" oninput="compterDescription(this)">
+      <input id="f-desc" placeholder="Mon site personnel" autocomplete="off" maxlength="140" data-saisir="compterDescription">
       <div class="hint" id="f-desc-compte">Deux lignes sous le nom, dans le hub : environ 45 caractères se voient, 140 au plus.</div></div>
     <div class="field"><label>Dossier du projet</label>
       <div class="fb"><div class="fb-cur" id="fb-c">/</div><div class="fb-l" id="fb-l"></div></div>
-      <div class="suggest" id="suggest" style="display:none" onclick="applySuggestion()"></div></div>
+      <div class="suggest" id="suggest" style="display:none" data-agir="applySuggestion"></div></div>
     <div class="field"><label>Commande de lancement</label>
       <input id="f-cmd" placeholder="python3 -m http.server $PORT" autocomplete="off">
       <div class="hint">La variable <code>$PORT</code> est fournie.</div></div>
@@ -3946,19 +3941,19 @@ a.pj:hover{border-color:var(--accent)}
       <div class="hint">Les catégories se créent dans Configuration.</div></div>
     <div class="field" id="f-vis-zone"><label>Visibilité</label>
       <div class="seg-toggle" id="f-vis-toggle">
-        <button data-v="privee" onclick="setVisAdd('privee')">Privée</button>
-        <button data-v="locale" onclick="setVisAdd('locale')">Réseau local</button>
-        <button data-v="publique" onclick="setVisAdd('publique')">Publique</button>
+        <button data-v="privee" data-agir="setVisAdd" data-args='["privee"]'>Privée</button>
+        <button data-v="locale" data-agir="setVisAdd" data-args='["locale"]'>Réseau local</button>
+        <button data-v="publique" data-agir="setVisAdd" data-args='["publique"]'>Publique</button>
       </div></div>
   </div>
-  <div class="mf"><button class="btn btn-default" onclick="hide('ov-add')">Annuler</button>
-    <button class="btn btn-primary" id="a-b" onclick="submitAdd()">Ajouter</button></div>
+  <div class="mf"><button class="btn btn-default" data-agir="hide" data-args='["ov-add"]'>Annuler</button>
+    <button class="btn btn-primary" id="a-b" data-agir="submitAdd">Ajouter</button></div>
 </div></div>
 
 <!-- Ce que le serveur pose a chaque affichage (page_du_panneau dans app.py),
      lu par panneau.js : rien de propre a la session n'est dans ce fichier-la,
      qui se met en cache. -->
-<script>
+<script nonce="__NONCE__">
 window.CODELAB_PAGE = {jeton: __JETON__, appsModele: __APPS_MODELE__, root: __ROOT__,
                        role: __ROLE__, utilisateur: __UTILISATEUR__, smtp: __SMTP__,
                        profil: __PROFIL__};

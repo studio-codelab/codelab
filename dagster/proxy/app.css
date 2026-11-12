@@ -112,7 +112,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .
 /* ------------------------------- la barre -------------------------------- */
 .icone-btn.menu-btn { display: none; }
 /* Le ruban de retour au hub : EXACTEMENT celui que le proxy pose sur les
-   applications et sur Dagster (RUBAN_CSS et ruban_retour, serveur/13 ;
+   applications et sur Dagster (RUBAN_CSS et ruban_retour, app.py, 13 ;
    nginx.conf), regle pour regle, recopie ici car la politique de cette page
    interdit les styles en ligne. Ne pas le « mettre au gout » de cette page : c'est le meme
    bouton partout, a la meme place. */

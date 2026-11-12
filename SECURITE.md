@@ -12,9 +12,8 @@ même commit.
 - **Second facteur obligatoire** pour tous les comptes, administrateur compris.
 - **Aucun secret en clair** : mots de passe hachés, réglages sensibles chiffrés, secrets générés au
   premier démarrage. Il n'existe aucun mot de passe par défaut.
-- **Applications cloisonnées** : elles sont servies sur une autre origine (`:9002`, ou un sous-domaine
-  derrière un VPS), chacune tourne
-  sous son propre uid et ne voit que son propre dossier.
+- **Applications cloisonnées** : elles sont servies sur une autre origine (`:9002`, `:8443` par
+  Tailscale Funnel), chacune tourne sous son propre uid et ne voit que son propre dossier.
 - **Rien n'est exposé sans raison** : Postgres, Redis et le SMTP ne sont pas publiés, l'administration
   ne répond qu'au réseau local.
 - **Tout reste sur ton serveur.** Seuls les mails (par ton serveur d'envoi) et, si tu l'actives, un
@@ -146,8 +145,8 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 
 ## Applications hébergées
 
-- **Une autre origine.** Les applications sont servies sur le port `9002` (un sous-domaine par
-  application derrière un VPS), le panneau sur le `9001`. Un script d'une application ne peut donc
+- **Une autre origine.** Les applications sont servies sur le port `9002` (`:8443` par Tailscale
+  Funnel), le panneau sur le `9001` (`:443`). Un script d'une application ne peut donc
   lire ni les pages du panneau ni son jeton. Si le port `9002` ne s'ouvre pas, ou si
   `APP_MANAGER_APPS_PORT` vaut `0`, la séparation tombe : les applications reviennent dans l'origine
   du panneau, et le diagnostic le signale.
@@ -183,8 +182,10 @@ Sans lui, les réglages chiffrés deviennent illisibles.
   - sa page et son API ne répondent qu'au rôle `admin` ;
   - `/compte/...`, par où le panneau relaie le hub, au compte du jeton, pour ses seuls messages ;
   - `/interne/...` au seul rôle `panneau`, qu'aucune session ne peut porter (`jeton_du_panneau`).
-  Ce qui modifie exige en plus l'en-tête `X-Messages` (un formulaire d'un autre site ne sait pas le
-  poser). Le panneau garde la vérification des droits (sur quelle application un compte peut
+  Ce qui modifie, sur la page, son API et `/compte/...`, exige en plus l'en-tête `X-Messages` : un
+  formulaire d'un autre site, ou d'un autre port du même serveur, ne sait pas le poser.
+  Le panneau le pose sur ce qu'il relaie. Il ne protège pas d'un script de la même origine (voir
+  plus bas). Le panneau garde la vérification des droits (sur quelle application un compte peut
   écrire), le délai entre deux messages et les envois (mail, notifications).
 - **Logos.** Seuls les PNG, JPEG et GIF sont acceptés (512 Ko au plus), reconnus à leur signature. Le
   SVG est refusé, parce qu'il peut porter du script.
@@ -203,28 +204,26 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 | — | Postgres, Redis, SMTP de Mailpit | non publiés : réseau Docker interne seulement |
 
 - **Toujours au plus strict**, sans case à cocher :
-  - le HTTPS est constaté (directement ou par `X-Forwarded-Proto`), ce qui active le cookie `Secure`
-    et HSTS (6 mois) ;
-  - `X-Forwarded-For` n'est jamais cru ;
+  - le HTTPS est constaté (Tailscale Funnel, reconnu à son port, ou une connexion directe en TLS),
+    ce qui active `Secure` sur les cookies (session, appareil, tournage) et HSTS (6 mois) ;
+  - ni `X-Forwarded-For` ni `X-Forwarded-Proto` ne sont crus ;
   - une requête relayée (`X-Forwarded-*`) n'atteint jamais l'administration.
 - **En-têtes du panneau** : CSP stricte (`default-src 'self'`, `frame-ancestors 'none'`,
-  `form-action 'self'`), `nosniff`, `Referrer-Policy: no-referrer`. La page du hub ajoute
+  `form-action 'self'`, scripts et balises de style au seul nonce de la réponse : un script injecté
+  ne s'exécute pas, règle 23), `nosniff`, `Referrer-Policy: no-referrer`. La page du hub ajoute
   `frame-src` pour la seule origine des applications : le widget « À la une » y affiche un aperçu
   inerte (`sandbox`, sans clic) de la dernière application ouverte.
-- **Exposition recommandée** : un VPS qui porte le domaine et le certificat, et un tunnel WireGuard
-  vers ton serveur ([`app-manager/vps/README.md`](app-manager/vps/README.md)). Aucun port n'est
-  alors ouvert sur ta box.
 - **Accès par Tailscale Funnel** (Paramètres > Sécurité, éteint par défaut) : le panneau sur
   `https://<machine>.<réseau>.ts.net`, les applications sur le même nom en `:8443`. Ce sont donc
-  deux origines distinctes, comme en local avec `9001` et `9002`. Ce que ça implique :
+  deux origines distinctes, comme en local avec `9001` et `9002`. Mais **toutes les applications
+  partagent `:8443`** : Funnel ne donne pas de sous-domaine par application (voir « Ce que CodeLab
+  ne protège pas »). Ce que ça implique :
   - le chiffrement va jusqu'au conteneur : c'est tailscaled qui termine le HTTPS, pas un tiers ;
   - `tailscaled` et `tailscale` tournent sous leur propre uid (`1002`), sans le groupe de
     `/workspace`, avec un environnement vide (aucun secret du panneau). Leur état est en `0700` ;
   - la clé d'authentification est chiffrée dans le coffre et n'apparaît dans aucune réponse.
     `tailscale up` la lit dans un fichier `0600`, effacé aussitôt, jamais en ligne de commande.
 - Ne publie pas `3000`, `8025` ni `2222` sur Internet sans besoin. Funnel ne les expose pas.
-
-- Ne publie pas `3000`, `8025` ni `2222` sur Internet sans besoin. Le tunnel ne les expose pas.
 
 ## Conteneurs et chaîne logicielle
 
@@ -351,6 +350,11 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 20. Les applications et leurs builds ne tournent jamais en root.
 21. Un nom d'application ne peut pas prendre celui d'une route du panneau : la liste est tirée de la
     table des routes elle-même.
+23. Les pages du panneau n'exécutent que leurs propres scripts : `script-src` n'a pas
+    `'unsafe-inline'`, chaque balise `<script>` ou `<style>` en ligne porte le nonce de sa réponse
+    (posé sur le gabarit avant toute donnée), et le balisage ne porte aucun gestionnaire en ligne :
+    un élément nomme son appel (`data-agir`, `data-changer`, `data-saisir`, `data-entree`), cherché
+    dans une table fermée.
 
 ## Ce que CodeLab ne protège pas
 
@@ -364,14 +368,16 @@ Sans lui, les réglages chiffrés deviennent illisibles.
   la connexion qu'impose la visibilité *Privée*. Une application aux données sensibles vérifie
   elle-même le jeton signé `X-CodeLab-Auth` (`codelab_auth.utilisateur`), qu'une autre
   application ne peut pas fabriquer.
-- **Sur le port des applications (sans VPS), toutes partagent une origine** (`:9002`). Un script
-  d'une application peut donc agir, au nom du visiteur, dans une autre application que ce visiteur
-  ouvre. Messages en fait partie depuis qu'elle est une application : un administrateur qui ouvre
-  une application hostile sur `:9002` lui expose sa boîte. Derrière le VPS, chaque application a son
-  sous-domaine, donc son origine.
-- **Derrière le VPS, tous les visiteurs d'Internet partagent une adresse** pour la limite des
-  essais : cinq mauvais mots de passe, de qui que ce soit, suspendent les connexions distantes
-  cinq minutes. C'est voulu : croire `X-Forwarded-For` permettrait de contourner la limite.
+- **Toutes les applications partagent une origine** (`:9002` en local, `:8443` par Tailscale
+  Funnel, qui ne donne qu'un nom en `.ts.net`). Un script d'une application peut donc agir, au nom
+  du visiteur, dans une autre application que ce visiteur ouvre : il pose les en-têtes qu'il veut
+  (`X-Messages` compris), et `SameSite` ne joue pas dans une même origine. Messages en fait partie
+  depuis qu'elle est une application : un administrateur qui ouvre une application hostile lui
+  expose sa boîte. N'héberge que des applications dont tu connais le code.
+- **La limite des essais compte par adresse**, jamais par compte : une limite par compte
+  laisserait n'importe qui fermer la porte d'un compte précis, de n'importe où, et le second
+  facteur obligatoire rend déjà la force brute du mot de passe inutile. Par Tailscale Funnel,
+  chaque visiteur garde sa propre adresse (`tailscaled` la pose, le visiteur ne la choisit pas).
 - **L'administrateur voit tout** : les applications, le journal, et les mails passés par Mailpit.
   Il ne voit jamais un mot de passe, ni un mail de sécurité : codes, liens d'invitation et alertes
   de connexion partent en direct, sans copie dans Mailpit.
@@ -390,7 +396,8 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 
 ## Mise en production
 
-- [ ] HTTPS en place (VPS recommandé). Le cookie `Secure` et HSTS suivent d'eux-mêmes.
+- [ ] Accès depuis internet par Tailscale Funnel seulement (HTTPS). Le cookie `Secure` et HSTS
+      suivent d'eux-mêmes.
 - [ ] Second facteur actif sur le compte administrateur (clé d'accès de préférence).
 - [ ] Serveur d'envoi réglé (*Paramètres > E-mail*) et adresse d'alerte renseignée. Sans serveur
       d'envoi, aucun compte ne peut être invité.

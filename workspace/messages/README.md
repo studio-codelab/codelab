@@ -18,7 +18,7 @@ C'est une **application par défaut**, comme le Diagnostic :
 | `app.py` | le serveur (Flask) : l'identité, la page, l'API de l'administrateur, le relais du hub, le dialogue avec le panneau |
 | `donnees.py` | la base et ses règles : messages, pièces jointes, projets, tâches, suivi, reprise, export |
 | `index.html` | la page : boîte de réception, planning, feuille de route, projets |
-| `codelab_auth.py` | la vérification du jeton signé du panneau ; copie exacte de `dev/modeles/codelab_auth.py` (un test le vérifie) |
+| `codelab_auth.py` | la vérification du jeton signé du panneau ; copie exacte de `dev/codelab_auth.py` (un test le vérifie) |
 | `icon.svg` | l'icône, servie au hub par le panneau et à la page par l'application |
 | `.env` | `CODELAB_DB=messages` ; versionné car il ne porte aucun secret |
 
@@ -42,7 +42,7 @@ Toute requête porte le jeton signé du panneau (`X-CodeLab-Auth`). Sans lui, la
 | Chemin | Qui | Pour quoi |
 |---|---|---|
 | `/`, `/api/...` | l'administrateur, par le proxy | la page et son API ; ce qui modifie exige aussi l'en-tête `X-Messages: 1` (CSRF) |
-| `/compte/...` | un compte, relayé par le panneau | écrire un message, déposer et relire ses pièces, suivre ses messages |
+| `/compte/...` | un compte, relayé par le panneau | écrire un message, déposer et relire ses pièces, suivre ses messages ; ce qui modifie exige aussi `X-Messages: 1`, que le panneau pose (un formulaire d'une application voisine ne le sait pas) |
 | `/interne/...` | le panneau seul (rôle `panneau`) | synchroniser, annoncer les nouveaux messages, oublier un compte, reprendre les anciennes données |
 
 Le panneau garde ce que lui seul sait faire :

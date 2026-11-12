@@ -70,7 +70,7 @@ Par la **tuile Mailpit du hub**, ou sur `http://<serveur>:8025/`, avec la sessio
 du panneau. Aucun compte utilisateur n'y accède, puisque l'interface montre tous les mails, liens de
 réinitialisation compris.
 
-L'interface est celle de CodeLab, servie par `codelab-dagster-proxy` (`dagster/proxy/mailpit-ui/`) sur
+L'interface est celle de CodeLab, servie par `codelab-dagster-proxy` (`dagster/proxy/`) sur
 l'API de Mailpit. Le contenu d'un mail n'est jamais inséré dans la page : son HTML ne s'affiche que
 dans un cadre isolé, sans script.
 

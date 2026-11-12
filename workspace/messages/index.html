@@ -41,8 +41,7 @@ try{var m=document.cookie.match(/(?:^|;\s*)codelab-theme=([^;]*)/);
   CONTRAINTES - Aucune donnee n'est gardee ici : tout passe par l'API de
                 app.py, qui verifie l'identite signee a chaque appel.
               - Toutes les adresses sont RELATIVES (api/..., ?vue=...) : la
-                page vit sous /messages/ en mode port, a la racine en mode
-                sous-domaine.
+                page vit sous /messages/, et le proxy retire ce prefixe.
               - Les couleurs viennent de theme.css ; mode et largeur restent
                 separes (AGENTS.md, section 4).
               - Rien ne se supprime sans demander() : les tests le verifient.

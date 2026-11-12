@@ -795,7 +795,7 @@ def _joindre_panneau(port, chemin="/health", timeout=4):
 
 
 # Le port des applications quand rien ne le dit : c'est le defaut du panneau
-# (voir APPS_PORT dans app-manager/app/serveur/02-sessions.py), et c'est celui que publie
+# (voir APPS_PORT dans app-manager/app/app.py, 02-sessions), et c'est celui que publie
 # docker-compose.yml.
 PORT_APPS_DEFAUT = 9002
 
@@ -890,52 +890,23 @@ def check_origine_applications():
 
 
 def check_exposition():
-    """Ce qui doit etre pose quand le panneau sort du reseau local.
+    """Le panneau est-il publie sur internet, et par ou ?
 
-    Ces variables ne se devinent pas depuis le code : elles dependent de ce
-    qu'on a mis devant. Tant que la stack reste chez soi, leur absence est
-    normale -- la sonde le dit plutot que de crier au feu.
+    Une seule porte vers l'exterieur : Tailscale Funnel (Parametres >
+    Securite), toujours en https. L'administration reste reservee au reseau
+    local quoi qu'il arrive (ce n'est plus un reglage).
+    ESSAYE ET ECARTE : les variables APP_MANAGER_HTTPS et
+    APP_MANAGER_PUBLIC_URL d'un VPS, retire du depot.
     """
-    # DEUX SOURCES, ET IL FAUT LES DEUX. Ces reglages se posent desormais
-    # depuis la page Exposition du panneau, qui les ecrit dans
-    # la base du panneau ; la variable d'environnement reste prioritaire quand
-    # le compose la fixe. Ne lire que l'environnement, comme le faisait cette
-    # sonde, annoncait "il manque APP_MANAGER_HTTPS" sur une installation ou
-    # HTTPS etait deja active depuis la page -- la sonde reclamait ce qui
-    # etait deja fait.
-    pose = _exposition_panneau() or {}
-
-    # Ni le fichier ni une variable : on ne regarde pas le bon conteneur.
-    # Repondre "reseau local, tout va bien" ici serait inventer une reponse a
-    # partir de fichiers qu'on n'a simplement pas sous les yeux.
-    if not pose and not _etat_panneau_visible() and not any(
-            (os.environ.get(v) or "").strip() for v in
-            ("APP_MANAGER_HTTPS", "APP_MANAGER_PUBLIC_URL")):
+    if not _etat_panneau_visible():
         return Etat.SANS_OBJET, "exposition", _hors_de_portee()
-
-    # Proxy de confiance et administration locale ne sont plus des reglages :
-    # X-Forwarded-For n'est jamais cru, l'administration ne repond qu'au
-    # reseau local. Le cookie Secure suit la connexion (https constate) ; la
-    # sonde, hors requete, ne voit que l'adresse publique declaree.
-    publique = ((os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()
-                or str(pose.get("adresse_publique") or "").strip())
+    publique = _adresse_publique_panneau()
     if not publique:
         return (Etat.OK, "exposition",
-                "réseau local : aucune adresse publique déclarée -- cohérent "
-                "tant que rien n'est devant")
-    portee = "administration reservee au reseau local"
-    manques = []
-    if not publique.lower().startswith("https://"):
-        manques.append("HTTPS (adresse publique en http://, cookie de session non marque Secure)")
-    if manques:
-        # Rang 2 : la stack tourne, et ce qui manque est un REGLAGE a poser,
-        # pas un service tombe. Le dire en rouge sanglant a chaque quart
-        # d'heure n'accelere pas sa pose -- cela apprend a ne plus lire.
-        return (Etat.ALERTE, "exposition", "exposé, mais il manque : "
-                + " ; ".join(manques) + " -- à poser dans Paramètres > Exposition"
-                + " (" + portee + ")")
+                "réseau local : Tailscale Funnel est éteint, rien n'est publié")
     return (Etat.OK, "exposition",
-            f"publié sur {publique}, cookie Secure, adresse réelle des visiteurs, {portee}")
+            f"publié par Tailscale Funnel sur {publique} (https), administration "
+            f"réservée au réseau local")
 
 
 def check_provenance():
@@ -980,7 +951,7 @@ def check_provenance():
         else:
             dedans += 1
 
-    publique = (os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()
+    publique = _adresse_publique_panneau()
     if not dehors:
         return (Etat.OK, "provenance des connexions",
                 f"{dedans} connexions, toutes depuis le réseau local")
@@ -991,12 +962,12 @@ def check_provenance():
                 f"{dedans} depuis le réseau local, {sum(dehors.values())} depuis "
                 f"l'extérieur -- attendu, la stack est publiée sur {publique}")
     # Rang 2, et le mot compte : ces adresses sont a EXPLIQUER, pas une
-    # intrusion prouvee. Un tunnel, un VPN de maison ou un proxy monte sans
-    # declarer APP_MANAGER_PUBLIC_URL donnent exactement cette trace.
+    # intrusion prouvee. Funnel eteint, un VPN de maison ou une redirection
+    # de la box donnent exactement cette trace.
     return (Etat.ALERTE, "provenance des connexions",
-            f"des connexions viennent de l'EXTÉRIEUR alors qu'aucune adresse "
-            f"publique n'est déclarée : {resume}. Vérifie ce que ta box "
-            f"redirige, et borne les ports au réseau local.")
+            f"des connexions viennent de l'EXTÉRIEUR alors que Tailscale Funnel "
+            f"est éteint : {resume}. Vérifie ce que ta box redirige, et borne "
+            f"les ports au réseau local.")
 
 
 def _etat_panneau():
@@ -1081,14 +1052,19 @@ def _comptes_panneau():
     return {l["nom"]: ({"totp": l["totp"]} if l["totp"] else {}) for l in lignes}
 
 
-def _exposition_panneau():
-    lignes = _requete_panneau("SELECT valeur FROM parametres WHERE cle = 'exposition'")
-    if lignes is None:
-        return {}
+def _adresse_publique_panneau():
+    """L'adresse Tailscale Funnel du panneau quand l'acces depuis internet
+    est allume (table parametres, ligne « tunnel » : actif, annoncee), sinon
+    "". La meme que adresse_funnel cote panneau, lue dans sa base."""
+    lignes = _requete_panneau("SELECT valeur FROM parametres WHERE cle = 'tunnel'")
     try:
-        return json.loads(lignes[0]["valeur"]) if lignes else {}
+        tunnel = json.loads(lignes[0]["valeur"]) if lignes else {}
     except ValueError:
-        return {}
+        return ""
+    if not isinstance(tunnel, dict) or tunnel.get("actif") is not True:
+        return ""
+    adresse = str(tunnel.get("annoncee") or "")
+    return adresse if re.fullmatch(r"https://[a-z0-9-]+(\.[a-z0-9-]+)*\.ts\.net", adresse) else ""
 
 
 def _ips_du_journal(nombre=2000):
@@ -1355,7 +1331,6 @@ def check_surface_exposee():
     if not _etat_panneau_visible():
         return Etat.SANS_OBJET, "surface exposée", _hors_de_portee()
     apps = _apps_panneau()
-    expo = _exposition_panneau()
     comptes = _comptes_panneau()
 
     publiques = sorted(n for n, a in apps.items()
@@ -1363,11 +1338,11 @@ def check_surface_exposee():
     sans_2fa = sorted(n for n, c in comptes.items()
                       if isinstance(c, dict) and not c.get("totp"))
     admin_local = True    # toujours : ce n'est plus un reglage
-    adresse = (expo.get("adresse_publique") or "").strip()
+    adresse = _adresse_publique_panneau()
 
     morceaux = [
         f"administration {'limitee au reseau local' if admin_local else 'joignable de partout'}",
-        f"adresse publique {'déclarée : ' + adresse if adresse else 'non déclarée'}",
+        f"adresse publique {'par Tailscale Funnel : ' + adresse if adresse else 'aucune (Funnel éteint)'}",
         f"{len(publiques)} application(s) publique(s)"
         + (f" ({', '.join(publiques[:3])})" if publiques else ""),
         f"{len(sans_2fa)} compte(s) sans second facteur"
@@ -1713,7 +1688,7 @@ def verif_le_projet_est_ecrivable():
 # Seule trace voulue : les echecs de connexion du dernier pentest, sous le
 # nom PENTEST_NOM, qui mettent l'adresse de ce conteneur en pause cinq
 # minutes (regle 6) -- c'est precisement ce qu'il verifie.
-# DEPEND DE : les routes et les messages du panneau (serveur/*.py). Un test
+# DEPEND DE : les routes et les messages du panneau (app.py). Un test
 # du depot (test_les_pentests_visent_de_vraies_routes) tient la liste
 # ROUTES_ADMIN_PENTEST alignee sur la table des routes.
 
@@ -1798,7 +1773,7 @@ def pentest_routes_admin_sans_session():
 
 
 # L'en-tete et la valeur que la page du panneau doit porter. Le detail de
-# chaque choix est dans poser_les_entetes (serveur/04-requetes.py).
+# chaque choix est dans poser_les_entetes (app.py, 04-requetes).
 ENTETES_ATTENDUS = {
     "x-content-type-options": "nosniff",
     "x-frame-options": "DENY",

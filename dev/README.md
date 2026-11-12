@@ -84,8 +84,7 @@ Puis, dans le panneau :
 
 1. *Applications > Ajouter un projet* ;
 2. choisir le dossier, accepter les commandes proposées ;
-3. activer l'application. Elle est servie sur `http://<serveur>:9002/mon-projet/` (derrière un
-   VPS : `https://mon-projet.<domaine>/`).
+3. activer l'application. Elle est servie sur `http://<serveur>:9002/mon-projet/`.
 
 À chaque modification : **Build** (s'il y en a un), puis **Redémarrer**, dans la fiche de
 l'application. Les règles d'intégration au hub (sous-chemin, port) sont dans [`AGENTS.md`](AGENTS.md).
@@ -179,8 +178,8 @@ code (le tien, ou celui d'un agent) n'a pas à pouvoir le faire.
 | `entrypoint.sh` | au démarrage : permissions de `/workspace`, `CODEX_HOME` et manuel, `CLAUDE_CONFIG_DIR`, clés hôte, `authorized_keys` reconstruit depuis `authorized_keys.d/`, variables de session, gitconfig, extensions VS Code ; puis `sshd -D -e` en processus principal |
 | `codelab` | l'outil de projet |
 | `AGENTS.md` | le manuel des projets, livré dans l'image |
-| `modeles/` | les modules déposés par `codelab create` et tenus à jour par `codelab update` |
-| `video/` | `fabriquer.mjs` (le tournage et le montage de `codelab video`) et le modèle de scénario |
+| `codelab_auth.py`, `codelab_web.py`, `codelab-auth.js`, `codelab-web.js` | les modules déposés par `codelab create` et tenus à jour par `codelab update` |
+| `fabriquer.mjs`, `scenario-modele.mjs` | le tournage et le montage de `codelab video`, et le modèle de scénario |
 
 | Variable (compose) | Rôle |
 |---|---|
