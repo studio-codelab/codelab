@@ -8,7 +8,7 @@
 // CHARGE PAR  fabriquer.mjs (meme dossier, /usr/local/share/codelab/video/).
 // CONTRAINTES Rien ne sort du poste : ni police en ligne (Manrope est
 //             copiee a cote, sinon la police du systeme), ni musique
-//             telechargee, ni IA. Le conteneur n'a que 1,5 CPU et 1280 Mo :
+//             telechargee, ni IA. Le conteneur n'a que 1,5 CPU et 2,5 Go :
 //             seuls le titre et la fin (DUREE_INTRO + DUREE_FIN) sont
 //             dessines image par image par Chromium ; la demonstration,
 //             elle, est composee par ffmpeg sur des images fixes (fond qui

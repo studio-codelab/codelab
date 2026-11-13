@@ -1257,7 +1257,7 @@ def _readme_racine():
 
 
 
-RAM_CIBLE_MO = 4096
+RAM_CIBLE_MO = 8192
 
 
 COEURS_CIBLE = 2

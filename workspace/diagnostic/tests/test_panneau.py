@@ -9986,6 +9986,8 @@ def test_le_shell_tient_une_session_vscode():
     redemarraient en boucle : le noyau tuait l'hote d'extensions (serveur
     VS Code, Codex, serveurs de langage, JVM de Database Client JDBC, git).
     pids_limit compte les fils d'execution, et une JVM en ouvre des dizaines.
+    Vecu ensuite a 1280 Mo et 1024, Claude Code arrive a cote de Codex :
+    « la connexion se relance constamment, et je perds le chat ».
     """
     def en_mo(v):
         v = str(v)
@@ -9994,8 +9996,8 @@ def test_le_shell_tient_une_session_vscode():
         dev = _services_du_compose(chemin)["codelab-dev"]
         memoire = dev.get("mem_limit", dev.get("deploy_memory"))
         pids = dev.get("pids_limit", dev.get("deploy_pids"))
-        assert en_mo(memoire) >= 1280, (chemin, memoire)
-        assert int(pids) >= 1024, (chemin, pids)
+        assert en_mo(memoire) >= 2560, (chemin, memoire)
+        assert int(pids) >= 4096, (chemin, pids)
 
 
 
