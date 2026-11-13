@@ -38,17 +38,18 @@
 # machine -- ce qu'on veut empecher, c'est qu'UN service prenne tout, pas
 # repartir la memoire a l'avance.
 #
-# CIBLE : 4 Go et 2 coeurs.
+# CIBLE : 8 Go et 2 coeurs.
 #
-# Les valeurs visaient auparavant 8 Go, et elles ne bornaient plus rien sur
-# une machine deux fois plus petite : un plafond de 4 Go pour le panneau, sur
-# un serveur qui en a 4, laisse ce seul service emporter la machine -- ce que
-# ces lignes existent precisement pour empecher. Un plafond au-dessus de la
-# RAM disponible n'est pas une securite large, c'est une securite absente.
+# La machine de l'installation a 8 Go. La regle : aucun service ne prend a
+# lui seul plus du TIERS de la machine (2,7 Go ici), pour que le panneau
+# reponde toujours et qu'on puisse arreter le fautif. Un plafond au-dessus
+# de la RAM disponible n'est pas une securite large, c'est une securite
+# absente -- vecu quand les valeurs visaient 8 Go sur un serveur de 4.
 #
-# Total actuel : 4,8 Go de plafonds. La
-# somme depasse encore les 4 Go, et c'est toujours voulu -- mais aucun
-# service ne peut plus prendre a lui seul plus du tiers de la machine.
+# Total actuel : 7,3 Go de plafonds, sous les 8 Go. Le poste de
+# developpement (voir codelab-dev) et le panneau, qui porte toutes les
+# applications et leurs builds, prennent 2,5 Go chacun ; les autres
+# services tenaient deja dans leur plafond calcule pour 4 Go.
 #
 # CPU : meme raisonnement. Un plafond de 2.0 sur un serveur bi-coeur ne
 # limite rien. Aucun service ne depasse desormais 1.5.
@@ -310,18 +311,25 @@ services:
 
     # Le shell : on y compile, d'ou une part plus large que les services. Voir l'explication en tete de fichier.
     #
-    # 1280m et 1024 processus, parce que 896m et 512 tuaient VS Code. Une
-    # session Remote-SSH, c'est le serveur VS Code, son hote d'extensions,
-    # Codex (son extension ET son agent), les serveurs de langage, la JVM de
-    # Database Client JDBC, et git a chaque rafraichissement. A 896m le noyau
-    # tuait l'hote d'extensions : l'agent IA et la vue Git redemarraient en
-    # boucle. Et pids_limit compte les FILS D'EXECUTION, pas les processus --
-    # chaque Node en ouvre une dizaine, la JVM plusieurs dizaines : a 512, un
-    # thread refuse suffisait a faire tomber l'hote d'extensions de la meme
-    # facon, sans aucune trace « OOMKilled ».
-    mem_limit: 1280m
+    # 2560m et 4096 fils d'execution : le plus gros plafond de la stack,
+    # parce que c'est la qu'on travaille. Une session Remote-SSH, c'est le
+    # serveur VS Code, son hote d'extensions, Claude Code (son extension ET
+    # son agent, qui grossit avec la conversation), Codex de meme, les
+    # serveurs de langage, la JVM de Database Client JDBC, git a chaque
+    # rafraichissement, et les builds lances par l'agent.
+    # Vecu, deux fois. A 896m, puis a 1280m une fois Claude Code arrive a
+    # cote de Codex : « la connexion se relance constamment, et je perds le
+    # chat ». Le noyau tuait l'hote d'extensions -- VS Code se reconnecte, le
+    # panneau de l'agent repart de zero. Et pids_limit compte les FILS
+    # D'EXECUTION, pas les processus : chaque Node en ouvre une dizaine, la
+    # JVM plusieurs dizaines ; un thread refuse fait tomber l'hote
+    # d'extensions de la meme facon, sans aucune trace « OOMKilled ». Le
+    # compteur qui le dit : /sys/fs/cgroup/memory.events (oom_kill) et
+    # pids.events (max), lus DANS le conteneur.
+    # Plafond permis : le tiers de la machine (2,7 Go sur 8).
+    mem_limit: 2560m
     cpus: 1.5
-    pids_limit: 1024
+    pids_limit: 4096
     logging:
       driver: json-file
       options:
@@ -492,7 +500,8 @@ services:
     restart: unless-stopped
 
     # LA PART LA PLUS LARGE, et c'est normal : ce conteneur porte le panneau, les builds npm ET toutes les applications deployees, qui sont ses processus fils. Trop juste ici, c'est une application tuee au hasard par le noyau en plein build. Voir l'explication en tete de fichier.
-    mem_limit: 1280m
+    # A egalite avec codelab-dev depuis le passage a 8 Go : jamais en dessous.
+    mem_limit: 2560m
     cpus: 1.5
     pids_limit: 1024
     logging:
