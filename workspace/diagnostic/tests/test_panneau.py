@@ -3210,9 +3210,16 @@ def test_au_telephone_le_texte_se_coupe_au_lieu_de_deborder():
 
 def test_les_boutons_repondent_au_doigt():
     """Un bouton s'enfonce a l'appui, a une hauteur reguliere, et 44 px au
-    doigt (la cible tactile d'Apple et de Google)."""
+    doigt (la cible tactile d'Apple et de Google). Il s'enfonce SANS
+    retrecir : avec scale(.97), un appui pres du bord d'un bouton large
+    tombait hors du bouton deja retreci (Vecu : « certains boutons ne
+    fonctionnent pas tout le temps »)."""
     page = _page_panneau("dashboard.html")
-    assert ".btn:not(:disabled):active,.icon-btn:not(:disabled):active{transform:scale(.97)}" in page
+    relief = page.split("/* LA FINITION DES BOUTONS.")[1].split("@media (pointer:coarse)")[0]
+    actif = relief.split(":not(:disabled):active{transform:translateY(1px);box-shadow:none}")[0]
+    assert actif.rsplit(":where(", 1)[1].startswith(".btn,.icon-btn,")
+    css = _feuilles_de_style(page)
+    assert not re.search(r":active[^{}]*\{[^}]*scale\(", css), "un bouton appuye ne retrecit plus"
     assert ".btn{min-height:36px;font-weight:600}" in page
     doigt = page.split("@media (pointer:coarse){\n  .btn{")[1].split("}")[0]
     assert "min-height:44px" in doigt
@@ -3319,6 +3326,142 @@ console.log('ok');
     assert "formulaireDeConnexion(await sonde.text())" in tournage and "echouer(" in tournage
     manuel = open(os.path.join(_racine_depot(), "dev", "AGENTS.md"), encoding="utf-8").read()
     assert "**Obligatoire des que l'application a ses propres comptes**" in manuel
+
+
+# ------------- Un appui qui clique, des boutons qui ont de la matiere -------------
+#
+# Vecu : « Donne de la texture aux boutons, je veux qu'il n'y ait pas de bug
+# sur mobile, certains boutons ne fonctionnent pas tout le temps. Les boutons
+# ne s'affichent pas bien dans l'application Messages. »
+
+PAGES_TACTILES = ("dashboard.html", "login.html", PAGE_MESSAGES)
+
+
+def _sans_survol_de_souris(css):
+    """Le CSS sans ses blocs @media (hover:hover...) : ce qui reste vaut
+    aussi au doigt."""
+    morceaux, i = [], 0
+    while True:
+        j = css.find("@media (hover:hover", i)
+        if j < 0:
+            return "".join(morceaux) + css[i:]
+        morceaux.append(css[i:j])
+        k, profondeur = css.index("{", j) + 1, 1
+        while profondeur:
+            profondeur += {"{": 1, "}": -1}.get(css[k], 0)
+            k += 1
+        i = k
+
+
+@pytest.mark.parametrize("nom", PAGES_TACTILES)
+def test_un_appui_clique_a_tous_les_coups(nom):
+    """Deux appuis rapides sur deux boutons voisins se lisaient comme un
+    double toucher : la page zoomait au lieu de cliquer. Et Safari sur iPhone
+    n'envoie le clic d'un simple <div> (le texte d'un message, qu'un appui
+    deplie) a l'aiguillage du document que si l'element a l'air cliquable."""
+    css = _feuilles_de_style(_page_panneau(nom))
+    assert "html{touch-action:manipulation}" in css
+    assert ":where([data-agir]){cursor:pointer}" in css
+
+
+@pytest.mark.parametrize("nom", PAGES_TACTILES)
+def test_aucun_survol_ne_revele_quelque_chose_au_doigt(nom):
+    """Safari sur iPhone prend un premier appui pour un survol des que ce
+    survol fait APPARAITRE quelque chose (opacite, display, visibility) : le
+    voile « Changer » du logo se montrait, et le clic ne partait qu'au second
+    appui. Un survol qui revele un autre element ne vit que pour la souris."""
+    css = _sans_survol_de_souris(_feuilles_de_style(_page_panneau(nom)))
+    revele = re.findall(r"[^{}]*:hover(?:\s*[>+~]\s*|\s+)[.#\w\[][^{}]*\{[^}]*"
+                        r"\b(?:opacity|visibility|display)\s*:[^}]*\}", css)
+    assert not revele, revele
+
+
+def test_la_matiere_des_boutons_vient_du_theme():
+    """Les jetons de la texture vivent dans theme.css, dans les trois etats
+    du theme : le grain, gris, sert aux deux ; le reflet, le creux et le
+    biseau changent dans le noir. Le panneau et les applications les lisent
+    au meme endroit."""
+    theme = open(os.path.join(DOSSIER_PANNEAU, "app", "theme.css"), encoding="utf-8").read()
+    clair = theme.split(":root{", 1)[1].split("\n}\n", 1)[0]
+    for jeton in ("--grain:", "--relief:", "--relief-appui:", "--biseau:"):
+        assert jeton in clair
+    sombre_systeme = theme.split('@media (prefers-color-scheme: dark){\n'
+                                 '  :root:not([data-theme="light"]):not([data-theme="dark"]){',
+                                 1)[1].split("\n  }\n", 1)[0]
+    sombre_choisi = theme.split(':root[data-theme="dark"]{', 1)[1].split("\n}\n", 1)[0]
+    for bloc in (sombre_systeme, sombre_choisi):
+        for jeton in ("--relief:", "--relief-appui:", "--biseau:"):
+            assert jeton in bloc
+    # Un bruit gris et discret : il ne teinte aucun bouton.
+    assert "feTurbulence" in clair and "0 0 0 0 .055'" in clair
+
+
+@pytest.mark.parametrize("nom", PAGES_TACTILES)
+def test_un_bouton_a_de_la_matiere_et_s_enfonce_sans_retrecir(nom):
+    """Le grain et le reflet passent SOUS le texte du bouton (un ::before a
+    -1 dans une pile isolee) : le fond de chaque variante reste le sien, et
+    un survol qui le change n'efface pas la texture. A l'appui, le bouton
+    descend d'un pixel, sans retrecir : avec scale(.97), un appui pres du
+    bord tombait hors du bouton deja retreci. Safari sur iPhone n'applique
+    :active que si un ecouteur de toucher existe."""
+    page = _page_panneau(nom)
+    css = _feuilles_de_style(page)
+    assert "isolation:isolate" in css
+    assert re.search(r'::before\{content:"";position:absolute;\s*inset:[-0-9px]+;\s*z-index:-1;', css)
+    assert "background:var(--grain),var(--relief)}" in css
+    assert "background:var(--grain),var(--relief-appui)" in css
+    assert re.search(r":active\{[^}]*transform:translateY\(1px\)", css)
+    assert not re.search(r":active[^{}]*\{[^}]*scale\(", css)
+    assert "addEventListener('touchstart'" in page
+
+
+@pytest.mark.parametrize("nom", ("dashboard.html", PAGE_MESSAGES))
+def test_au_doigt_une_petite_cible_deborde_de_son_dessin(nom):
+    """Une icone de 32 px, une puce de 30 : au doigt, un appui qui frolait
+    le bord tombait a cote. La zone d'appui deborde de 6 px (un ::after
+    transparent), sans changer le dessin -- et seulement au doigt."""
+    css = _feuilles_de_style(_page_panneau(nom))
+    m = re.search(r'\.icone?-btn[^{}]*::after\{content:"";position:absolute;inset:-6px\}', css)
+    assert m
+    assert css.rfind("@media", 0, m.start()) == css.rfind("@media (pointer:coarse){", 0, m.start())
+
+
+def test_messages_garde_ses_actions_sur_un_telephone():
+    """Sous 900 px, les actions de l'en-tete (Exporter, Modifier, + Tache)
+    etaient masquees : depuis un telephone, un projet ne se modifiait ni ne
+    s'exportait. Elles passent sous le titre, sur toute la largeur."""
+    page = _page_panneau(PAGE_MESSAGES)
+    css = _feuilles_de_style(page)
+    etroit = css.split("@media (max-width:900px){", 1)[1].split("\n}\n", 1)[0]
+    assert "#entete-actes{flex:1 1 100%}" in etroit
+    assert not re.search(r"#entete-actes\{[^}]*display:none", css)
+    # Un style en ligne gagnerait sur « #entete-actes:empty{display:none} ».
+    assert 'id="entete-actes" style=' not in page
+
+
+def test_messages_dessine_ses_listes_et_ses_icones():
+    """Laissees au systeme, les listes deroulantes gardaient son gris et sa
+    fleche, d'une autre hauteur que les boutons voisins, et les icones
+    (archiver, supprimer) n'avaient pas de corps : a cote de « + Tache », on
+    aurait dit une autre application."""
+    css = _feuilles_de_style(_page_panneau(PAGE_MESSAGES))
+    listes = css.split("select.choix,.message-actes select,.ajout select,.champ select{", 1)[1].split("}", 1)[0]
+    assert "appearance:none" in listes and "background-image:" in listes
+    # Un « background » en raccourci effacerait la fleche dessinee.
+    for regle in ("select.choix{", ".message-actes select{", ".ajout select{"):
+        assert "background:" not in css.split(regle, 1)[1].split("}", 1)[0]
+    icone = css.split(".icone-btn{", 1)[1].split("}", 1)[0]
+    assert "border:1px solid var(--line2)" in icone and "background:var(--surface)" in icone
+
+
+def test_messages_ne_repeint_pas_sous_le_doigt():
+    """Le tour de vingt secondes repeignait la liste entre le toucher et le
+    lacher : le bouton qu'on appuyait etait remplace. Il attend que le doigt
+    se leve, comme celui du panneau (quandImmobile)."""
+    page = _page_panneau(PAGE_MESSAGES)
+    tour = page.split("}, 20000);", 1)[0].rsplit("setInterval(()=>{", 1)[1]
+    assert "doigtsPoses>0" in tour
+    assert "addEventListener('touchstart', e=>{ doigtsPoses=e.touches.length; }" in page
 
 
 # ===========================================================================
@@ -9986,6 +10129,8 @@ def test_le_shell_tient_une_session_vscode():
     redemarraient en boucle : le noyau tuait l'hote d'extensions (serveur
     VS Code, Codex, serveurs de langage, JVM de Database Client JDBC, git).
     pids_limit compte les fils d'execution, et une JVM en ouvre des dizaines.
+    Vecu ensuite a 1280 Mo et 1024, Claude Code arrive a cote de Codex :
+    « la connexion se relance constamment, et je perds le chat ».
     """
     def en_mo(v):
         v = str(v)
@@ -9994,8 +10139,8 @@ def test_le_shell_tient_une_session_vscode():
         dev = _services_du_compose(chemin)["codelab-dev"]
         memoire = dev.get("mem_limit", dev.get("deploy_memory"))
         pids = dev.get("pids_limit", dev.get("deploy_pids"))
-        assert en_mo(memoire) >= 1280, (chemin, memoire)
-        assert int(pids) >= 1024, (chemin, pids)
+        assert en_mo(memoire) >= 2560, (chemin, memoire)
+        assert int(pids) >= 4096, (chemin, pids)
 
 
 

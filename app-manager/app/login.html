@@ -127,7 +127,7 @@ input::placeholder{color:var(--dim2)}
 .boite label{margin-top:0}
 .boite .field+.field{margin-top:14px}
 button.principal{width:100%;margin-top:20px;padding:11px;border:none;border-radius:var(--r-s);
- background:var(--accent);color:#fff;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+ background:var(--accent);color:var(--sur-accent);font:inherit;font-size:14px;font-weight:600;cursor:pointer}
 button.principal:hover{background:var(--accent-h)}
 button.principal:disabled{opacity:.6;cursor:default}
 .err{display:none}
@@ -184,8 +184,7 @@ button.principal:disabled{opacity:.6;cursor:default}
  padding:14px;border:0;border-radius:16px;background:var(--txt);color:var(--surface);
  font:inherit;font-size:15px;font-weight:650;cursor:pointer;letter-spacing:-.01em;
  transition:transform .12s ease, opacity .12s}
-.bouton-geste:hover{opacity:.92}
-.bouton-geste:active{transform:scale(.985)}
+@media (hover:hover){ .bouton-geste:hover{opacity:.92} }
 .bouton-geste:disabled{opacity:.55;cursor:default}
 .bouton-geste svg{width:22px;height:22px;stroke-width:1.7}
 .pk-indispo{margin:0 0 18px;font-size:12px;color:var(--dim2);text-align:center;line-height:1.5}
@@ -225,6 +224,31 @@ button.principal:disabled{opacity:.6;cursor:default}
  font:inherit;font-weight:600;cursor:pointer;text-align:left}
 .autres-moyens button svg{width:18px;height:18px;flex:none}
 @media (hover:hover){.autres-moyens button:hover{border-color:var(--accent)}}
+
+/* ---- la matiere des boutons, et un appui qui clique a tous les coups ----
+   Les memes regles que le panneau (dashboard.html : « un appui est un
+   clic », « la finition des boutons ») : le grain et le jour de theme.css
+   dans un ::before, entre le fond du bouton et son texte ; un biseau ; un
+   creux a l'appui, qui descend d'un pixel au lieu de retrecir (un bouton
+   qui retrecit se derobe sous un appui pres de son bord) ; pas de double
+   toucher qui zoome ; et le curseur qui fait envoyer a Safari sur iPhone
+   le clic d'un element simple a l'aiguillage du document. Un bouton a
+   bordure la couvre aussi (inset:-1px) : sinon un liseré restait clair
+   autour du creux. */
+html{touch-action:manipulation}
+:where([data-agir]){cursor:pointer}
+:where(button.principal,.secondaire,.bouton-geste,.autres-moyens button){position:relative;isolation:isolate;
+ -webkit-tap-highlight-color:transparent;box-shadow:var(--biseau),0 1px 2px var(--shadow)}
+:where(button.principal,.secondaire,.bouton-geste,.autres-moyens button)::before{content:"";position:absolute;
+ inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:var(--grain),var(--relief)}
+.secondaire::before,.autres-moyens button::before{inset:-1px}
+:where(button.principal,.secondaire,.bouton-geste,.autres-moyens button):not(:disabled):active::before{
+ background:var(--grain),var(--relief-appui);box-shadow:inset 0 1px 3px var(--shadow-2)}
+:where(button.principal,.secondaire,.bouton-geste,.autres-moyens button):not(:disabled):active{
+ transform:translateY(1px);box-shadow:none}
+button.principal{box-shadow:var(--biseau),0 1px 2px var(--shadow-2),
+ 0 6px 16px -6px color-mix(in srgb,var(--accent) 60%,transparent)}
+button.principal:disabled{box-shadow:none}
 </style></head><body>
 <div id="defile">
 
@@ -1083,6 +1107,11 @@ document.addEventListener('click', e=>{
   if(n.tagName==='A') e.preventDefault();
   f.apply(n, args);
 });
+/* Safari sur iPhone n'applique :active (le creux d'un bouton appuye) que si
+   un ecouteur de toucher existe : sans lui, l'appui ne se voyait pas, et on
+   rappuyait. Il ne fait rien d'autre, et passive ne retarde pas le
+   defilement. */
+document.addEventListener('touchstart', ()=>{}, {passive:true});
 </script>
 </div>
 </body></html>

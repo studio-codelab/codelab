@@ -81,7 +81,7 @@ Quatre principes :
 
 ## Installer
 
-**Prérequis** : Docker Engine avec le plugin Compose, 4 Go de mémoire, 2 cœurs, environ 3 Go de disque
+**Prérequis** : Docker Engine avec le plugin Compose, 8 Go de mémoire (les plafonds du compose sont réglés pour cette taille), 2 cœurs, environ 3 Go de disque
 plus tes projets.
 
 ```bash

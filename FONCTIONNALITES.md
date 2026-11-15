@@ -175,7 +175,13 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
   - **Texte lisible au téléphone** : un nom long passe à la ligne (trois lignes sur une tuile, deux
     « À la une ») au lieu de déborder ; les onglets d'une fiche défilent au doigt ; une adresse
     mail se coupe plutôt que de cacher la suite. **Boutons** de hauteur régulière, 44 px au doigt,
-    en relief léger, qui s'enfoncent à l'appui.
+    **texturés** (un grain très fin, un reflet en haut, une arête sombre en bas, dans la couleur
+    choisie et dans les deux thèmes), qui **se creusent** à l'appui.
+  - **Un appui clique à tous les coups**, au doigt : deux appuis rapides ne font plus zoomer la page
+    (le zoom à deux doigts reste permis dans un onglet) ; un bouton s'enfonce sans rétrécir, et un
+    appui près de son bord compte ; une petite icône, une puce ou un onglet reçoivent l'appui jusqu'à
+    6 px autour de leur dessin ; un élément qui ne révèle quelque chose qu'au survol (le voile
+    « Changer » du logo, les trois points d'une icône du hub) ne demande plus deux appuis sur iPhone.
   - **Hors ligne** : l'application s'ouvre quand même, sur « Serveur injoignable », retente toutes les
     5 s et revient d'elle-même. Rien n'est mis en cache que cette page (ni pages du panneau, ni
     données). Il faut une adresse en `https` (ou `localhost`) : c'est une exigence des navigateurs.
@@ -527,6 +533,10 @@ plus tard.
   planning, réordonnables), leurs messages, leur avancement, leur étape (*idée*, *en construction*,
   *réalisé*) et l'application liée. Supprimer un projet ne perd rien : ses tâches passent dans
   « Général », ses messages redeviennent à classer.
+- **Au téléphone et sur une tablette en portrait** : les actions de l'en-tête (*Exporter*,
+  *Modifier*, *+ Tâche*) passent sous le titre, sur toute la largeur ; les listes déroulantes, les
+  boutons et les icônes (archiver, supprimer) ont la même hauteur et la même texture que ceux du
+  panneau, et la liste ne se repeint pas sous un doigt posé.
 
 ## 6. Poste de développement
 

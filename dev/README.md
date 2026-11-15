@@ -168,7 +168,7 @@ code (le tien, ou celui d'un agent) n'a pas à pouvoir le faire.
 | Pastille rouge clignotante | 5 crashs en 10 minutes : relance automatique suspendue |
 | Build en échec | journal de l'application, dans sa fiche |
 | Fichier non modifiable | `rm /workspace/.codelab/permissions-v1`, puis redémarrer la stack |
-| VS Code ou l'agent redémarrent en boucle | manque de mémoire ou de processus : `docker stats codelab-dev` ; remonter le plafond (1280 Mo, 1024 processus) sans dépasser le tiers de la machine |
+| VS Code se reconnecte sans cesse, l'agent (Claude Code, Codex) perd sa conversation | manque de mémoire ou de fils d'exécution : le noyau tue l'hôte d'extensions. Dans le terminal du poste, `cat /sys/fs/cgroup/memory.events /sys/fs/cgroup/pids.events` (`oom_kill` ou `max` au-dessus de 0 le confirme), et `docker stats codelab-dev` sur le serveur. Remonter le plafond (2,5 Go, 4 096 fils) sans dépasser le tiers de la machine, ou fermer l'agent qu'on n'utilise pas. La conversation n'est pas perdue : `claude --resume` |
 
 ## L'image
 

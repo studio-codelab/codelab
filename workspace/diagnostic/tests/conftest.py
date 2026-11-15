@@ -586,6 +586,15 @@ def _page_panneau(nom):
 
 
 
+def _feuilles_de_style(page):
+    """Le CSS d'une page : ses balises <style> mises bout a bout, sans les
+    commentaires -- une regle citee dans un commentaire n'est pas une regle."""
+    css = "\n".join(re.findall(r"<style[^>]*>(.*?)</style>", page, re.S))
+    return re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+
+
+
 def _lire_source(chemin):
     """Un fichier par son chemin ; dashboard.html reconstitue avec son script,
     app.py avec ses morceaux (voir _page_panneau).
@@ -1257,7 +1266,7 @@ def _readme_racine():
 
 
 
-RAM_CIBLE_MO = 4096
+RAM_CIBLE_MO = 8192
 
 
 COEURS_CIBLE = 2

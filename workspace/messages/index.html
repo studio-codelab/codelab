@@ -58,6 +58,17 @@ body{margin:0;background:var(--bg);color:var(--txt);font:var(--t-b)/1.5 var(--sa
  font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
 button,input,select,textarea{font:inherit;color:inherit}
 .cache{display:none !important}
+/* UN APPUI EST UN CLIC, TOUT DE SUITE ET A TOUS LES COUPS. Vecu : « certains
+   boutons ne fonctionnent pas tout le temps » sur un telephone.
+   - manipulation : deux appuis rapides sur deux boutons voisins se lisaient
+     comme un double toucher, et le navigateur zoomait au lieu de cliquer.
+     Le defilement et le zoom a deux doigts restent permis.
+   - Safari sur iPhone n'envoie le clic d'un simple <div> (le texte d'un
+     message, qu'un appui deplie) a l'ecouteur du document que si l'element
+     a l'air cliquable : cursor:pointer, sur tout ce que l'aiguillage
+     (data-agir, plus bas) ecoute. :where() ne pese rien. */
+html{touch-action:manipulation}
+:where([data-agir]){cursor:pointer}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 :root{--sujet-hub:#0e8f8f;--sujet-idee:#7c5cd6;--sujet-app:#c2710c;--ms-ombre:0 1px 2px rgba(15,23,42,.06),0 8px 24px rgba(15,23,42,.06)}
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{
@@ -95,6 +106,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .entete h1{margin:0;font-size:clamp(26px,3vw,34px);font-weight:800;letter-spacing:-.035em;line-height:1.05}
 .entete .sous{color:var(--dim);margin-top:4px}
 .entete .espace{flex:1}
+.entete-titre{min-width:0}
+#entete-actes{display:flex;gap:8px;flex-wrap:wrap}
 .icone-btn.menu-mobile{display:none}
 
 /* ---------- briques ---------- */
@@ -108,6 +121,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .btn.discret:hover{color:var(--txt);background:var(--surface2)}
 .btn.danger{color:var(--err)}
 .btn.petit{min-height:30px;padding:0 10px;font-size:12.5px;border-radius:8px}
+.btn:disabled{opacity:.55;cursor:default}
 .segment{display:inline-flex;padding:3px;border-radius:11px;background:var(--surface2);border:1px solid var(--line)}
 .segment button{all:unset;cursor:pointer;height:30px;padding:0 13px;border-radius:8px;font-size:13px;font-weight:700;color:var(--dim);
  display:inline-flex;align-items:center;gap:6px}
@@ -117,7 +131,19 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
  background:var(--surface);min-width:200px}
 .champ-recherche svg{width:16px;height:16px;fill:none;stroke:var(--dim);stroke-width:2;stroke-linecap:round}
 .champ-recherche input{border:0;outline:0;background:transparent;flex:1;min-width:0;padding:0}
-select.choix{height:38px;border:1px solid var(--line2);border-radius:10px;background:var(--surface);padding:0 10px}
+select.choix{height:38px;border:1px solid var(--line2);border-radius:10px;background-color:var(--surface);padding:0 30px 0 11px}
+/* LES LISTES DEROULANTES, DESSINEES. Laissees au navigateur, elles
+   gardaient le gris et la fleche du systeme, d'une autre hauteur que les
+   boutons voisins : sur un telephone, « Ranger dans un projet… » avait l'air
+   d'un formulaire d'une autre application. La fleche est faite de deux
+   degrades (pas d'image) : elle prend la couleur du texte attenue, dans les
+   deux themes. */
+select.choix,.message-actes select,.ajout select,.champ select{appearance:none;-webkit-appearance:none;cursor:pointer;
+ padding-right:30px;background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),
+ linear-gradient(135deg,var(--dim) 50%,transparent 50%);background-repeat:no-repeat;
+ background-size:5px 5px,5px 5px;background-position:calc(100% - 16px) 52%,calc(100% - 11px) 52%;
+ font-weight:600;color:var(--txt)}
+:is(select.choix,.message-actes select,.ajout select,.champ select):hover{border-color:var(--accent)}
 .outils{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:16px}
 .puce{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px;border-radius:999px;font-size:11.5px;font-weight:750;
  background:var(--surface2);color:var(--dim);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
@@ -136,15 +162,44 @@ select.choix{height:38px;border:1px solid var(--line2);border-radius:10px;backgr
 .poignee:hover{color:var(--accent);background:var(--surface2)}
 .poignee svg{width:14px;height:14px;fill:currentColor}
 .glisse{opacity:.95;box-shadow:0 18px 44px rgba(0,0,0,.18) !important;position:relative;z-index:5}
-.icone-btn{width:32px;height:32px;border-radius:8px;border:0;background:none;color:var(--dim);cursor:pointer;
- display:inline-flex;align-items:center;justify-content:center;flex:none}
-.icone-btn:hover{background:var(--surface2);color:var(--txt)}
+.icone-btn{width:32px;height:32px;border-radius:8px;border:1px solid var(--line2);background:var(--surface);color:var(--dim);
+ cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex:none;padding:0}
+.icone-btn:hover{border-color:var(--accent);color:var(--txt)}
+.icone-btn:disabled{opacity:.45;cursor:default}
 .icone-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .case{appearance:none;-webkit-appearance:none;width:20px;height:20px;border-radius:7px;border:2px solid var(--line2);background:var(--surface);
  flex:none;cursor:pointer;display:grid;place-items:center;margin:0}
 .case:checked{background:var(--accent);border-color:var(--accent)}
 .case:checked::after{content:"";width:9px;height:5px;border:solid var(--sur-accent);border-width:0 0 2.4px 2.4px;transform:translateY(-1px) rotate(-45deg)}
 .case.ronde{border-radius:999px}
+
+/* ---------- la matiere des boutons ----------
+   Les memes regles que le panneau (dashboard.html, « la finition des
+   boutons ») : le grain et le jour de theme.css (--grain, --relief) dans un
+   ::before glisse entre le fond du bouton et son texte, un biseau
+   (--biseau), et a l'appui un creux qui descend d'un pixel. Le fond reste
+   celui de chaque bouton : la texture eclaire toutes les teintes de la meme
+   facon. ESSAYE ET ECARTE : retrecir a l'appui (scale) -- un appui pres du
+   bord tombait hors du bouton deja retreci, et le clic partait a cote. */
+:where(.btn:not(.discret),.icone-btn){position:relative;isolation:isolate}
+/* Un bouton de segment est remis a zero (all:unset, plus haut), position
+   comprise : un :where() ne pese pas assez pour le repositionner. */
+.segment button{position:relative;isolation:isolate}
+:where(.btn:not(.discret),.icone-btn,.segment button[aria-pressed="true"])::before{content:"";position:absolute;inset:0;
+ z-index:-1;border-radius:inherit;pointer-events:none;background:var(--grain),var(--relief)}
+/* Sur la bordure aussi : sinon un liseré restait clair autour du creux. */
+:where(.btn,.icone-btn)::before{inset:-1px}
+:where(.btn:not(.discret),.icone-btn):not(:disabled):active::before{background:var(--grain),var(--relief-appui);
+ box-shadow:inset 0 1px 3px var(--shadow-2)}
+.btn,.icone-btn{-webkit-tap-highlight-color:transparent;
+ transition:background .15s,border-color .15s,color .15s,box-shadow .15s,transform .08s}
+.btn:not(.discret),.icone-btn{box-shadow:var(--biseau),0 1px 2px var(--shadow)}
+.btn.principal{box-shadow:var(--biseau),0 1px 2px var(--shadow-2),
+ 0 6px 16px -6px color-mix(in srgb,var(--accent) 60%,transparent)}
+.segment button[aria-pressed="true"]{box-shadow:var(--biseau),0 1px 2px rgba(0,0,0,.08)}
+.btn:not(.discret):not(:disabled):active,.icone-btn:not(:disabled):active{transform:translateY(1px);box-shadow:none}
+.btn.discret:not(:disabled):active{background:var(--surface2)}
+.btn:disabled,.icone-btn:disabled{box-shadow:none}
 
 /* ---------- boite de reception ---------- */
 .suggestions{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
@@ -167,7 +222,7 @@ select.choix{height:38px;border:1px solid var(--line2);border-radius:10px;backgr
 .message-texte{white-space:pre-wrap;word-break:break-word;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
 .message-texte.ouvert{display:block}
 .message-actes{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:2px}
-.message-actes select{height:30px;border-radius:8px;border:1px solid var(--line2);background:var(--surface);font-size:12.5px;padding:0 8px;max-width:220px}
+.message-actes select{height:30px;border-radius:8px;border:1px solid var(--line2);background-color:var(--surface);font-size:12.5px;padding:0 28px 0 9px;max-width:220px;min-width:0}
 .barre-choix{position:sticky;bottom:16px;z-index:20;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px;padding:10px 12px;
  border-radius:14px;background:var(--txt);color:var(--surface);box-shadow:0 18px 40px rgba(0,0,0,.25)}
 .barre-choix b{margin-right:auto;padding-left:6px}
@@ -185,7 +240,7 @@ select.choix{height:38px;border:1px solid var(--line2);border-radius:10px;backgr
 .tache-meta{display:flex;align-items:center;gap:6px;flex:none}
 .ajout{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);background:var(--surface2)}
 .ajout input{flex:1;min-width:0;height:36px;border:1px solid var(--line2);border-radius:9px;background:var(--surface);padding:0 11px}
-.ajout select{height:36px;border:1px solid var(--line2);border-radius:9px;background:var(--surface);padding:0 8px;max-width:180px}
+.ajout select{height:36px;border:1px solid var(--line2);border-radius:9px;background-color:var(--surface);padding:0 28px 0 9px;max-width:180px}
 .repli{margin-top:18px}
 .repli summary{cursor:pointer;color:var(--dim);font-weight:700;padding:6px 2px}
 .aide{color:var(--dim);font-size:12.5px}
@@ -251,8 +306,9 @@ a.btn{text-decoration:none;color:inherit}
 .champ{display:flex;flex-direction:column;gap:6px}
 .champ label,.champ .lib{font-size:12.5px;font-weight:750;color:var(--dim)}
 .champ input,.champ select,.champ textarea{width:100%;min-height:40px;border:1px solid var(--line2);border-radius:10px;
- background:var(--bg-input,var(--surface));padding:8px 11px}
+ background-color:var(--bg-input,var(--surface));padding:8px 11px}
 .champ textarea{min-height:90px;resize:vertical}
+.champ select{padding-right:30px}
 .rangee{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
 .fenetre-actes{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:4px}
 .fenetre-actes .gauche{margin-right:auto}
@@ -272,11 +328,40 @@ a.btn{text-decoration:none;color:inherit}
  font-weight:650;box-shadow:0 10px 30px rgba(0,0,0,.3);max-width:380px}
 .toast.err{background:var(--err);color:#fff}
 
+/* LE DOIGT A SA MARGE. Au doigt, les boutons prennent la hauteur des
+   autres (36 a 44 px), et la zone qui recoit l'appui deborde de 6 px
+   autour d'une petite cible (un ::after transparent) : un appui qui frole
+   le bord ne tombe plus a cote. Les segments, accoles, ne debordent qu'en
+   hauteur ; le titre d'une tache prend la hauteur de sa ligne. Ce bloc vient
+   en fin de feuille : il gagne sur la regle de chaque composant. */
+@media (pointer:coarse){
+  .btn{min-height:44px}
+  .btn.petit{min-height:36px}
+  .message-actes select{height:36px}
+  .icone-btn{width:36px;height:36px}
+  .segment button{height:36px}
+  select.choix,.champ-recherche{height:42px}
+  .ajout input,.ajout select{height:40px}
+  :where(.icone-btn,.btn.petit)::after{content:"";position:absolute;inset:-6px}
+  .cote-titre button{position:relative}
+  .cote-titre button::after{content:"";position:absolute;inset:-10px}
+  .segment button::after{content:"";position:absolute;inset:-6px 0}
+  .tache-titre{padding-block:16px;margin-block:-16px}
+  .repli summary{padding-block:11px}
+}
 @media (max-width:900px){
   .app{grid-template-columns:minmax(0,1fr)}
   .suggestion{flex-wrap:wrap}
-  .entete{flex-wrap:nowrap;align-items:flex-start}
-  #entete-actes{display:none !important}
+  /* Les actions de l'en-tete (Exporter, Modifier, + Tache) passent sous le
+     titre, sur toute la largeur. Vecu : masquees sous 900 px, elles
+     laissaient un projet impossible a modifier ou a exporter depuis un
+     telephone. */
+  .entete{align-items:flex-start;gap:10px 12px}
+  .entete-titre{flex:1 1 0}
+  .entete .espace{display:none}
+  #entete-actes{flex:1 1 100%}
+  #entete-actes:empty{display:none}
+  #entete-actes .btn{flex:1 1 0}
   .cote{position:fixed;inset:0 auto 0 0;width:280px;z-index:40;transform:translateX(-100%);transition:transform .2s}
   /* L'ombre n'existe qu'ouvert : fermee, elle debordait sur le bord de l'ecran. */
   .app.menu-ouvert .cote{transform:none;box-shadow:0 0 40px rgba(0,0,0,.2)}
@@ -306,9 +391,9 @@ a.btn{text-decoration:none;color:inherit}
   <main class="plan-travail" id="plan">
     <div class="entete">
       <button class="icone-btn menu-mobile" data-agir="menu" aria-label="Menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
-      <div><h1 id="titre"></h1><div class="sous" id="sous-titre"></div></div>
+      <div class="entete-titre"><h1 id="titre"></h1><div class="sous" id="sous-titre"></div></div>
       <div class="espace"></div>
-      <div id="entete-actes" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+      <div id="entete-actes"></div>
     </div>
     <div id="vue"></div>
   </main>
@@ -1199,11 +1284,18 @@ charger().then(()=>{ if(vue==='boite') marquerLus(); });
 let jourAffiche=iso(aujourdhui());
 /* Ni pendant un defilement : repeindre sous le doigt coupe l'elan et fait
    sauter la page. Le tour suivant rattrape. */
-let defileLe=0;
+/* Ni sous un doigt pose : la liste repeinte entre le toucher et le
+   lacher remplace le bouton qu'on est en train d'appuyer. L'ecouteur de
+   toucher sert aussi Safari sur iPhone, qui n'applique :active (le creux
+   d'un bouton appuye) que s'il en existe un. */
+let defileLe=0, doigtsPoses=0;
 document.addEventListener('scroll', ()=>{ defileLe=performance.now(); }, {capture:true, passive:true});
 document.addEventListener('touchmove', ()=>{ defileLe=performance.now(); }, {capture:true, passive:true});
+document.addEventListener('touchstart', e=>{ doigtsPoses=e.touches.length; }, {capture:true, passive:true});
+['touchend','touchcancel'].forEach(t=>document.addEventListener(t, e=>{
+  doigtsPoses=e.touches.length; defileLe=performance.now(); }, {capture:true, passive:true}));
 setInterval(()=>{
-  if(document.hidden || glisse || document.querySelector('.voile:not(.cache)')) return;
+  if(document.hidden || glisse || doigtsPoses>0 || document.querySelector('.voile:not(.cache)')) return;
   if(performance.now()-defileLe < 1500) return;
   if(document.activeElement && ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) return;
   if(iso(aujourdhui())!==jourAffiche){ jourAffiche=iso(aujourdhui()); }

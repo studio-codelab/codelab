@@ -173,7 +173,16 @@ rapporte le cas vécu.
   - les applications du hub, encadrées par `/ouvrir.html`, reçoivent la simulation iOS
     d'`environnement-app.js`.
 - **Au doigt, pas de survol** : ce qui n'apparaît qu'au survol a un autre chemin
-  (`@media (hover:none)`), et un aplat de survol ne reste pas « collé » après un appui.
+  (`@media (hover:none)`), et un aplat de survol ne reste pas « collé » après un appui. Un survol
+  qui fait **apparaître** un autre élément (opacité, `display`, `visibility`) vit dans
+  `@media (hover:hover)` : sur iPhone, il coûterait un appui (un test le vérifie).
+- **Un appui clique à tous les coups** : `html{touch-action:manipulation}` et
+  `:where([data-agir]){cursor:pointer}` dans chaque page (sans ce curseur, Safari sur iPhone
+  n'envoie pas le clic d'un `<div>` à l'aiguillage du document) ; un bouton s'enfonce sans
+  rétrécir (`translateY(1px)`, jamais `scale`) ; une petite cible déborde de 6 px au doigt (un
+  `::after`, « le doigt a sa marge » dans `dashboard.html`) ; rien ne se repeint sous un doigt posé.
+- **Un bouton nouveau** prend la matière des autres : il s'ajoute à la liste des `:where()` de « la
+  finition des boutons » (`dashboard.html`), qui pose le grain et le reflet de `theme.css`.
 - **Pas de style en dur** : les couleurs, rayons et tailles viennent de `theme.css`.
 
 ---

@@ -444,8 +444,8 @@ try {
   // ffmpeg compte les coeurs de l'HOTE, pas les 1,5 CPU du conteneur, et
   // x264 garde des images en memoire pour chaque fil : mesure sur ce
   // montage, 391 Mo a 2 fils, 687 Mo a 16, 998 Mo a 32. Sur un gros
-  // serveur, il depassait le mem_limit de codelab-dev (1280 Mo) et le noyau
-  // le tuait. Deux fils suffisent a 1,5 CPU : rien de plus lent.
+  // serveur, il depassait le mem_limit de codelab-dev (1280 Mo a l'epoque) et
+  // le noyau le tuait. Deux fils suffisent a 1,5 CPU : rien de plus lent.
   lancer("ffmpeg", ["-y", "-loglevel", "error", "-filter_complex_threads", "2", ...entrees,
     "-filter_complex", filtres.join(";"), "-map", "[v]", ...(sansSon ? [] : ["-map", son]),
     "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-threads", "2",

@@ -432,6 +432,8 @@ theme est servi sur la meme origine que l'application.
 | `--line` `--line2` | les traits : separation, et bordure d'un champ |
 | `--txt` `--dim` `--dim2` | le texte, le texte secondaire, le texte tres discret |
 | `--accent` `--accent-h` `--accent-soft` | **ce qui se clique**, et rien d'autre |
+| `--sur-accent` | le texte pose sur l'accent (un bouton plein) : jamais `#fff` en dur |
+| `--grain` `--relief` `--relief-appui` `--biseau` | la texture d'un bouton, posee par-dessus sa couleur (regle 6) |
 | `--ok` `--warn` `--err` (+ `-bg`, `-border`) | les etats : en ligne, a surveiller, en panne |
 | `--r` `--r-s` `--r-xs` | les rayons : carte, bouton, pastille |
 | `--t-xs` a `--t-xl`, `--t-b` | l'echelle de tailles de texte |
@@ -447,6 +449,20 @@ theme est servi sur la meme origine que l'application.
    est reserve a ce qui est du code.
 5. **Aucune police ni script tiers** : un chargement chez Google ferait fuiter
    l'adresse IP de chaque visiteur.
+6. **Un bouton a de la matiere, et repond a tous les coups au doigt.** Les
+   boutons du panneau et de Messages portent un grain, un reflet et un
+   biseau ; les jetons suivent le theme et ne changent pas la teinte du
+   bouton. Pour faire pareil :
+   `background-image:var(--grain),var(--relief)` (ou un `::before`, si une
+   regle de survol redefinit `background`), `box-shadow:var(--biseau)`, et a
+   l'appui `background-image:var(--grain),var(--relief-appui)` avec
+   `transform:translateY(1px)` -- **jamais `scale()`** : un bouton qui
+   retrecit se derobe sous un appui pres de son bord. Ajoute
+   `html{touch-action:manipulation}` (deux appuis rapides ne zooment plus), et
+   `cursor:pointer` sur tout element simple (`<div>`) qu'un ecouteur du
+   document fait cliquer : sans lui, Safari sur iPhone n'envoie pas le clic.
+   Une CSP qui refuse `img-src data:` garde des boutons sans grain, rien de
+   plus.
 
 ```html
 <link rel="stylesheet" href="/theme.css">
