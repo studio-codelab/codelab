@@ -51,6 +51,11 @@
                 qui a ete corrigee (voir :where() sur l'anneau de focus).
                 ESSAYE ET ECARTE : des @layer (base, puis style) -- theme.css,
                 hors couche, aurait alors battu tout le panneau.
+              - LA TEXTURE DES BOUTONS dans un ::before sous le texte (« la
+                finition des boutons »), pas en background-image : les
+                regles qui changent le fond l'effaceraient. Le ::after
+                reste libre pour la marge du doigt (« le doigt a sa
+                marge »). Un bouton ne retrecit jamais a l'appui.
   A AMELIORER - Les sections « style 2 » et « style du panneau » melangent
                 encore des regles de rubriques differentes : les ranger par
                 rubrique (hub, fiche, reglages) avec la base.
@@ -115,6 +120,25 @@ a{color:inherit;text-decoration:none}
 svg{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;
  background:var(--surface2);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+/* UN APPUI EST UN CLIC, TOUT DE SUITE ET A TOUS LES COUPS. Vecu : « certains
+   boutons ne fonctionnent pas tout le temps » sur un telephone.
+   - Double toucher : dans un onglet (mode site, ou le zoom reste permis),
+     deux appuis rapides sur deux boutons voisins se lisaient comme un
+     double toucher, et le navigateur zoomait au lieu de cliquer. Seuls
+     .btn et .icon-btn y echappaient. manipulation, sur toute la page, garde
+     le defilement et le zoom a deux doigts et retire le double toucher. En
+     mode application, html.mode-app (theme.css) va plus loin et gagne.
+   - Safari sur iPhone n'envoie le clic d'un simple <div> ou d'un <tr> a un
+     ecouteur pose sur le document que si l'element a l'air cliquable --
+     cursor:pointer. Tout l'aiguillage du panneau (data-agir, panneau.js)
+     ecoute le document : chaque element qui y repond porte donc ce
+     curseur. :where() ne pese rien : un composant qui dit « default »
+     (un dossier deja pris) garde le sien.
+   DEPEND DE : l'ecouteur de clic de l'aiguillage (panneau.js, 00-socle).
+   ESSAYE ET ECARTE : un ecouteur par element -- l'aiguillage unique est ce
+   qui permet la CSP sans gestionnaire en ligne (regle 23). */
+html{touch-action:manipulation}
+:where([data-agir]){cursor:pointer}
 
 /* ------------------------------ barre du haut ------------------------------ */
 .topbar{display:flex;align-items:center;gap:12px;color:var(--nav-txt);position:sticky;top:0;z-index:40}
@@ -406,7 +430,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
    plus faible que toute regle qui donne son propre rayon a l'element (un
    bouton garde le sien au focus). */
 :where(.btn,.icon-btn,.side-item,.fiche-onglets button):focus-visible{border-radius:var(--r-s)}
-.btn-primary{background:var(--accent);color:#fff}
+.btn-primary{background:var(--accent);color:var(--sur-accent)}
 .btn-primary:hover{background:var(--accent-h)}
 .btn-primary:disabled:hover{background:var(--accent)}
 .btn-default{background:var(--surface);color:var(--txt);border-color:var(--line2)}
@@ -451,31 +475,90 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .icon-btn:hover{color:var(--accent);border-color:var(--accent)}
 .icon-btn svg{width:15px;height:15px}
 /* LA FINITION DES BOUTONS. Vecu : « Je veux que le rendu soit premium, des
-   boutons de qualite ». Un bouton plat qui ne bouge pas sous le doigt
-   semble ne pas avoir pris le clic. Trois choses le font sentir solide :
+   boutons de qualite », puis « Donne de la texture aux boutons ». Un bouton
+   plat qui ne bouge pas sous le doigt semble ne pas avoir pris le clic.
+   Quatre choses le font sentir solide :
    - une hauteur reguliere (36 px a la souris, 44 px au doigt : la cible
      tactile recommandee par Apple et Google), pour que deux boutons voisins
      ne soient jamais de tailles differentes ;
-   - un relief discret : une ombre courte sous les boutons a contour, et
-     sous un bouton plein un liseré clair en haut et un halo de sa couleur ;
-   - un enfoncement a l'appui (:active), qui repond avant meme la requete.
-   ESSAYE ET ECARTE : un degrade sur le bouton principal -- il change de
-   teinte avec le nuancier et jurait sur certaines couleurs ; le halo en
-   color-mix suit la couleur choisie, et un navigateur sans color-mix garde
-   l'ombre seule. */
+   - une matiere : le grain et le jour de theme.css (--grain, --relief),
+     dans un ::before glisse ENTRE le fond du bouton et son texte -- le
+     bouton isole sa pile (isolation), le ::before passe dessous a -1. Le
+     fond reste celui de chaque variante, et une regle qui le change
+     (survol, #sec-parametres) n'efface pas la texture ;
+   - un biseau (--biseau : arete claire en haut, sombre en bas) et une ombre
+     courte, et sous le bouton principal un halo de sa couleur ;
+   - un enfoncement a l'appui (:active) : le jour s'inverse en creux,
+     l'ombre passe dedans, le bouton descend d'un pixel -- tous les boutons
+     en relief, pas seulement .btn.
+   La liste des boutons « en relief » est ecrite une fois, dans les :where()
+   ci-dessous : un bouton nouveau s'y ajoute. :where() ne pese rien, et
+   toute regle d'un composant (sa position, son ::before) gagne sur elle.
+   ESSAYE ET ECARTE :
+   - un degrade de couleur sur le bouton principal -- il change de teinte
+     avec le nuancier et jurait sur certaines couleurs ; le halo en
+     color-mix suit la couleur choisie, et un navigateur sans color-mix
+     garde l'ombre seule ;
+   - la texture en background-image du bouton : #sec-parametres et les
+     survols redefinissent « background », ce qui l'effacait ;
+   - un bouton qui retrecit a l'appui (scale .97). Au doigt, un appui pres du
+     bord d'un bouton large (358 px sur un telephone : 5 px de chaque cote)
+     tombait hors du bouton deja retreci, et le clic partait a cote. Vecu :
+     « certains boutons ne fonctionnent pas tout le temps ». Descendre d'un
+     pixel ne deplace aucun bord de plus d'un pixel. */
+:where(.btn,.icon-btn,.ap-puces button,.bw-sujets button,.nuancier button,.bento-bouton,
+ .seg-toggle button,.ap-outils .dl-btn){position:relative;isolation:isolate}
+:where(.btn,.icon-btn,.ap-puces button,.bw-sujets button,.nuancier button,.bento-bouton,
+ .seg-toggle button,.ap-outils .dl-btn)::before{content:"";position:absolute;inset:-1px;z-index:-1;
+ border-radius:inherit;pointer-events:none;background:var(--grain),var(--relief)}
+/* inset:-1px : la matiere couvre aussi la bordure, sans quoi un bouton
+   plein (bordure transparente) gardait a l'appui un liseré de sa couleur
+   claire autour du creux. Un bouton sans bordure s'arrete a son bord. */
+.bento-bouton::before,.seg-toggle button::before{inset:0}
+/* L'appui : le bouton descend d'un pixel et se creuse. L'ombre du creux vit
+   dans le ::before, qui couvre la bordure : posee sur le bouton, elle
+   s'arretait au bord interieur de la bordure, et un liseré clair cernait le
+   creux (net en sombre). */
+:where(.btn,.icon-btn,.ap-puces button,.bw-sujets button,.nuancier button,.bento-bouton,
+ .seg-toggle button,.ap-outils .dl-btn):not(:disabled):active{transform:translateY(1px);box-shadow:none}
+:where(.btn,.icon-btn,.ap-puces button,.bw-sujets button,.nuancier button,.bento-bouton,
+ .seg-toggle button,.ap-outils .dl-btn):not(:disabled):active::before{background:var(--grain),var(--relief-appui);
+ box-shadow:inset 0 1px 3px var(--shadow-2)}
+/* Un bouton discret n'a pas de corps : pas de matiere, un aplat a l'appui. */
+.btn-quiet::before{content:none}
+.btn-quiet:not(:disabled):active{background:var(--accent-soft)}
 .btn,.icon-btn{transition:background .15s,border-color .15s,color .15s,box-shadow .15s,transform .08s;
  -webkit-tap-highlight-color:transparent;touch-action:manipulation}
 .btn{min-height:36px;font-weight:600}
 .btn-sm{min-height:30px}
-.btn-default,.btn-refaire,.btn-arreter,.btn-ouvrir,.btn-danger-quiet,.icon-btn{box-shadow:0 1px 2px var(--shadow)}
-.btn-primary,.btn-demarrer{box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 1px 2px var(--shadow-2)}
-.btn-primary{box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 1px 2px var(--shadow-2),
+.btn-default,.btn-refaire,.btn-arreter,.btn-ouvrir,.btn-danger-quiet,.icon-btn,
+.ap-puces button,.bw-sujets button,.nuancier button,.ap-outils .dl-btn{box-shadow:var(--biseau),0 1px 2px var(--shadow)}
+.btn-primary,.btn-demarrer,.bento-bouton{box-shadow:var(--biseau),0 1px 2px var(--shadow-2)}
+.btn-primary{box-shadow:var(--biseau),0 1px 2px var(--shadow-2),
  0 6px 16px -6px color-mix(in srgb,var(--accent) 60%,transparent)}
-.btn:not(:disabled):active,.icon-btn:not(:disabled):active{transform:scale(.97)}
 .btn:disabled,.icon-btn:disabled{box-shadow:none}
+.btn:disabled::before,.icon-btn:disabled::before{background:var(--grain)}
 @media (pointer:coarse){
   .btn{min-height:44px}
   .btn-sm{min-height:36px}
+}
+/* LE DOIGT A SA MARGE. Une icone de 32 px, une puce de 30 : au doigt, un
+   appui qui frole le bord tombe a cote, et le bouton « ne marche pas a tous
+   les coups ». Sans changer le dessin, la zone qui recoit l'appui deborde
+   de 6 px autour (un ::after transparent). Entre deux voisins, le suivant
+   dans la page gagne la bande commune : il faut donc 6 px entre eux, sans
+   quoi il mordrait sur le corps de l'autre. Les segments et les onglets,
+   accoles, ne debordent qu'en hauteur. Une rangee qui defile de cote
+   (overflow) rogne ce debord : ses elements grandissent a la place, dans
+   la regle de leur composant (« au doigt », plus bas). */
+@media (pointer:coarse){
+  :where(.icon-btn,.btn-sm,.ap-puces button,.bw-sujets button,.nuancier button,.ed-retirer,
+   .pj button,.toast-action,.side-toggle-btn,.ap-vues button,.seg-hub button,.ed-barre button,
+   .fiche-onglets button){position:relative}
+  :where(.icon-btn,.btn-sm,.ap-puces button,.bw-sujets button,.nuancier button,.ed-retirer,
+   .pj button,.toast-action,.side-toggle-btn)::after{content:"";position:absolute;inset:-6px}
+  :where(.ap-vues button,.seg-hub button,.ed-barre button,.fiche-onglets button)::after{
+   content:"";position:absolute;inset:-6px 0}
 }
 
 /* ------------------------------ champs ------------------------------ */
@@ -797,10 +880,19 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 .ap-vues button{width:34px;height:30px;border:0;background:transparent;border-radius:8px;color:var(--dim);cursor:pointer;display:grid;place-items:center}
 .ap-vues button.active{background:var(--surface);color:var(--txt);box-shadow:0 1px 2px var(--shadow)}
 .ap-vues svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+/* Au doigt : la rangee d'outils prend la hauteur du champ de recherche
+   (40 px), et les deux vues une largeur qui se vise. */
+@media (pointer:coarse){
+  .ap-outils .dl-btn{height:40px}
+  .ap-vues button{width:40px}
+}
 .ap-grille{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
 .ap-carte{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px;display:flex;
  flex-direction:column;gap:12px;cursor:pointer;transition:border-color .15s,transform .15s}
-.ap-carte:hover{border-color:var(--accent);transform:translateY(-1px)}
+.ap-carte:hover{border-color:var(--accent)}
+/* Soulevee au survol de la souris seulement : au doigt, :hover reste pose
+   apres l'appui, et la carte bougeait sous le doigt. */
+@media (hover:hover){ .ap-carte:hover{transform:translateY(-1px)} }
 .ap-carte.err{box-shadow:inset 3px 0 0 var(--err)}
 .ap-carte.warn{box-shadow:inset 3px 0 0 var(--warn)}
 .ap-carte-haut{display:flex;gap:12px;align-items:center;min-width:0}
@@ -840,6 +932,9 @@ th[aria-sort="ascending"] .ap-th span,th[aria-sort="descending"] .ap-th span{opa
 .tbl-act{white-space:nowrap}
 .tbl-act>div{display:flex;gap:6px;justify-content:flex-end}
 .tbl-act .icon-btn{width:28px;height:28px}
+/* Au doigt, chaque icone deborde de 6 px (« le doigt a sa marge ») : il en
+   faut autant entre deux, sans quoi la suivante mordrait sur la premiere. */
+@media (pointer:coarse){ .tbl-act .icon-btn+.icon-btn{margin-left:4px} }
 
 /* ------------------------------ fiche d'une application ------------------------------ */
 .fiche-tete{display:flex;align-items:center;gap:14px;margin-bottom:20px;flex-wrap:wrap}
@@ -862,6 +957,10 @@ th[aria-sort="ascending"] .ap-th span,th[aria-sort="descending"] .ap-th span{opa
  border-bottom:2px solid transparent;margin-bottom:-1px;letter-spacing:-.008em}
 .fiche-onglets button:hover{color:var(--txt)}
 .fiche-onglets button.active{color:var(--accent);border-bottom-color:var(--accent)}
+/* Au doigt, un onglet a la hauteur d'un bouton : sur un telephone, la
+   rangee defile de cote et rogne tout debord (voir « le doigt a sa
+   marge »). */
+@media (pointer:coarse){ .fiche-onglets button{min-height:44px} }
 .onglet{display:none}
 .onglet.actif{display:block}
 /* Memes onglets pour les parametres. Ils separent ce qui n'a rien a voir --
@@ -958,7 +1057,13 @@ th[aria-sort="ascending"] .ap-th span,th[aria-sort="descending"] .ap-th span{opa
 .logo-voile{position:absolute;left:0;right:0;bottom:0;padding:3px 0;
  background:var(--nav);color:var(--nav-txt);font-size:10px;font-weight:650;
  letter-spacing:.04em;text-transform:uppercase;opacity:0;transition:opacity .12s}
-.logo-bouton:hover .logo-voile{opacity:.92}
+/* PAS DE SURVOL QUI REVELE, AU DOIGT. Safari sur iPhone traite un premier
+   appui comme un survol des qu'il fait APPARAITRE quelque chose (opacite
+   nulle, display, visibility) : le voile se montrait, et le clic ne partait
+   qu'au second appui. Au doigt, le voile est donc toujours la -- il n'y a
+   pas de survol pour le decouvrir. */
+@media (hover:hover){ .logo-bouton:hover .logo-voile{opacity:.92} }
+@media (hover:none){ .logo-voile{opacity:.92} }
 .logo-texte{flex:1;min-width:220px}
 .card-large{max-width:none}
 /* Une rangee de boutons sous un formulaire. Avant, on reutilisait .mf --
@@ -1772,8 +1877,11 @@ input,select,textarea{border-radius:12px}
 .hub-icone .ed-retirer{top:-6px;left:calc(50% - 54px)}
 .hub-icone .btn-menu-app{width:28px;height:28px;left:calc(50% - 54px);right:auto;bottom:auto;top:-8px;border-radius:999px;
  background:var(--surface);color:var(--txt);border:1px solid var(--line2);box-shadow:0 2px 8px rgba(0,0,0,.12);opacity:0}
-.hub-icone:hover .btn-menu-app,.hub-icone:focus-within .btn-menu-app,
+.hub-icone:focus-within .btn-menu-app,
 .hub-icone .btn-menu-app[aria-expanded="true"]{opacity:1}
+/* Au survol de la souris seulement : un survol qui fait apparaitre un
+   bouton coute un appui a Safari sur iPhone (voir le voile du logo). */
+@media (hover:hover){ .hub-icone:hover .btn-menu-app{opacity:1} }
 .hub-icone .btn-menu-app svg{width:15px;height:15px}
 .bw-moyen.bw-une{flex-direction:row}
 .bw-moyen.bw-une .bw-apercu{border-radius:24px 0 0 24px;flex:1.2}
