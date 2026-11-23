@@ -64,8 +64,11 @@ Le panneau la redémarre seul. Une alerte par mail part quand elle ne redémarre
    la cause probable de l'arrêt.
 2. **Le fichier du journal**, si la page ne suffit pas :
    `/DATA/AppData/codelab/app-manager/logs/<nom>.log`.
-3. **Corriger, puis Build et Redémarrer** depuis la fiche. Une dépendance cassée par la dernière
-   modification se répare souvent en revenant au commit précédent (`git log`, `git revert`).
+3. **Corriger, puis Mettre à jour** depuis la fiche (build puis redémarrage). Une dépendance cassée
+   par la dernière modification se répare souvent en revenant au commit précédent (`git log`,
+   `git revert`). Une **mise à jour automatique** qui échoue laisse l'application dans sa version
+   d'avant : la carte *Mises à jour* de la fiche et le journal disent pourquoi, et elle n'est pas
+   retentée tant qu'aucun nouveau commit n'arrive (décocher puis recocher la case la relance).
 4. **Sa base** se restaure seule, sans toucher aux autres ([7](#7-restaurer)).
 5. **« Le port … est encore tenu »** : un reste de l'application tient son port. Le panneau termine
    d'office ce qui reste d'une application morte avant de la relancer ; si le message persiste,

@@ -65,8 +65,15 @@ Le panneau ne crée jamais de projet : il **déclare** un dossier existant de `/
 6. **Surveillance** (`monitor_tick`, toutes les 10 s) :
    - un crash est relancé, 5 fois au plus en 10 minutes ; au-delà, « boucle de crash » et alerte ;
    - une sonde TCP sur le port interne donne l'état « Ne répond pas » ;
-   - les applications par défaut sont remises en route.
+   - les applications par défaut sont remises en route ;
+   - les mises à jour automatiques : une application qui a la case, dont un commit plus récent que
+     sa version en service attend depuis deux minutes (`DELAI_MAJ_AUTO`), est construite puis
+     redémarrée (`maj_auto_tick`, en arrière-plan, sous le verrou d'action de l'application).
 7. **Reprise** : au démarrage du panneau, toute application active est relancée.
+   **Version en service** : le commit que chaque lancement met en service (celui du dernier build
+   s'il y en a un) est noté avec son pid (table `processus`, colonne `commit_`). Un commit plus récent
+   dans le dépôt : `/api/apps` le rend dans `mise_a_jour`. Les commits se lisent dans `.git/objects`
+   sans lancer `git` (objet isolé seulement : un objet en pack n'a ni message ni compte).
 8. **Arrêt** : `SIGTERM` au groupe de processus, puis `SIGKILL` après 3 s.
 
 **Applications par défaut.** `dagster`, `diagnostic` et `mailpit`, réservées à l'administrateur.
@@ -167,7 +174,7 @@ Une base SQLite dans `APP_MANAGER_STATE` (`/DATA/AppData/codelab/app-manager` su
 | `appareils` | une ligne par session ouverte (compte, ouverture, dernière activité, adresse, navigateur) ; la retirer déconnecte l'appareil |
 | `abonnements_push` | une ligne par appareil abonné aux notifications (compte, session, adresse du service de notification, clés du navigateur) ; supprimée avec la session ou quand le service la dit morte |
 | `messages`, `pieces`, `taches`, `sous_taches`, `projets` | les données de Messages d'avant sa séparation : elles passent dans l'application Messages au premier démarrage (`reprendre_la_messagerie`), puis ces tables restent vides. Une migration future les retirera |
-| `processus` | processus lancés, retrouvés après un redémarrage du panneau |
+| `processus` | processus lancés, retrouvés après un redémarrage du panneau, avec le commit qu'ils ont mis en service (migration 10) |
 | `parametres` | réglages en clair : Tailscale Funnel (`tunnel`), conservation du journal… (une ligne `exposition` d'avant le retrait du VPS peut y rester, sans lecteur) |
 | `reglages_chiffres` | réglages sensibles, chiffrés (Fernet) avec `APP_MANAGER_CHIFFREMENT_CLE` |
 | `meta` | compteurs internes |
@@ -285,7 +292,7 @@ dans le journal du conteneur avec la méthode et la route (`docker logs codelab-
 | Version (admin) | `GET /api/version` : le commit de l'image et sa date (aucun appel sortant) |
 | Sécurité | `GET /api/securite`, `POST /api/securite/totp/preparer\|activer\|desactiver` ; `GET /api/sauvegardes` (dernières archives, alerte hors serveur), `GET /api/sauvegardes/<nom>` (télécharge, note la copie), `PUT /api/sauvegardes/copie` (`{externe}`), `GET/PUT /api/journal/conservation` (`{mois}` : 3, 6, 12, 24 ou 0), `GET/PUT /api/tunnel` (`{actif, cle, nom, deconnecter}`, chaque champ facultatif ; rend l'état, les deux adresses, et seulement *si* une clé est enregistrée), `GET /api/tunnel/qr` — admin |
 | Comptes (admin) | `GET/POST /api/utilisateurs`, `PUT/DELETE /api/utilisateurs/<nom>`, `GET/PUT /api/apps/<nom>/acces`, `GET /api/activite`, `GET /api/activite/carte` |
-| Applications (admin) | `GET /api/apps`, `GET /api/browse`, `GET /api/detect`, `POST /api/add`, `PUT/DELETE /api/app/<nom>`, `POST /api/app/<nom>/renommer`, `POST /api/app/<nom>/archiver\|desarchiver` (`GET /api/apps` les rend dans `archivees`), `POST /api/toggle\|restart\|build\|deploy\|visibility/<nom>`, `GET /api/metrics/<nom>`, `GET /api/logs/<nom>[/stream]`, `PUT/DELETE /api/app/<nom>/logo` |
+| Applications (admin) | `GET /api/apps`, `GET /api/browse`, `GET /api/detect`, `POST /api/add`, `PUT/DELETE /api/app/<nom>`, `POST /api/app/<nom>/renommer`, `POST /api/app/<nom>/archiver\|desarchiver` (`GET /api/apps` les rend dans `archivees`), `POST /api/toggle\|restart\|build\|deploy\|visibility/<nom>`, `POST /api/apps/<nom>/mettre-a-jour` (build puis redémarrage ; `409` si l'un échoue, l'application garde sa version), `PUT /api/apps/<nom>/maj-auto` (`{actif}`), `GET /api/metrics/<nom>`, `GET /api/logs/<nom>[/stream]`, `PUT/DELETE /api/app/<nom>/logo` |
 | Hub | `GET /api/mes-apps` (avec `nouvelle_version`, `ouverte_le` et `presentation` par application ; pour un compte utilisateur, `services` porte sa tuile Messages, dont `lien` mène à `/messages`), `POST/DELETE /api/mes-apps/<nom>/masquer`, `POST /api/mes-apps/<nom>/ouverte` (note la version vue), `GET/PUT /api/hub/disposition` (la composition du hub et le catalogue des widgets permis), `GET /api/hub/pouls?quoi=serveur,activite` (admin : la charge de la machine, mesurée toutes les dix secondes par le moniteur, et les ouvertures des quatorze derniers jours, pour les widgets Serveur et Activité), `GET /api/icon/<nom>`, `GET /api/presentations/<nom>/video\|affiche` (la vidéo du projet, avec les droits de l'application, requêtes `Range` acceptées), `GET /api/categories` (tous) ; `PUT /api/apps/<nom>/presentation` (admin : `{visible}`, la montrer dans le hub ou non), `PUT /api/categories` (admin) |
 | Messages (relais vers l'application) | `POST /api/messages` (`pieces` : les identifiants déposés), `POST /api/pieces` (le corps est le fichier, son nom dans `X-Nom-Fichier`), `GET /api/pieces/<id>` (l'auteur, ou l'administrateur), `GET /api/mes-messages` (ses messages et leur avancement), `POST /api/mes-messages/vus` (tous) ; `GET /api/messages/nouveaux?apres=<ts>` (admin : ce qui est arrivé, pour l'annoncer). Le reste (boîte, tâches, projets, export) est l'API de l'application Messages : voir [`workspace/messages/README.md`](../workspace/messages/README.md). Elle ne répond pas : 503 |
 | Alertes (admin) | `GET/POST /api/alertes`, `PUT /api/alertes/application/<nom>`, `GET/POST /api/surveillance-externe` |

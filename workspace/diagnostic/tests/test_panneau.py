@@ -5344,6 +5344,218 @@ def test_le_commit_se_lit_sans_lancer_git(tmp_path):
     assert "Nouvelle version" in page and "/ouverte'" in page and "keepalive:true" in page
 
 
+# ---------- les mises a jour d'une application ----------
+#
+# Vecu : « Identifier lorsqu'une app peut etre mise a jour, et proposer a
+# l'administration de la mettre a jour, ou configurer la mise a jour
+# automatique ». L'agent commite depuis le poste, l'application garde le code
+# qu'elle a charge : rien ne disait qu'elle etait en retard.
+
+def _commit_git(projet, message, parent=None):
+    """Ecrit un commit dans .git comme git le fait (objet isole, zlib), et y
+    fait pointer la branche. Sans git : le panneau ne le lance pas non plus."""
+    import hashlib
+    import zlib as _zlib
+    depot = projet / ".git"
+    (depot / "refs" / "heads").mkdir(parents=True, exist_ok=True)
+    (depot / "HEAD").write_text("ref: refs/heads/main\n")
+    corps = "tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904\n"
+    if parent:
+        corps += f"parent {parent}\n"
+    corps += "author Agent <agent> 0 +0000\ncommitter Agent <agent> 0 +0000\n\n" + message + "\n"
+    brut = f"commit {len(corps.encode())}\0".encode() + corps.encode()
+    sha = hashlib.sha1(brut).hexdigest()
+    (depot / "objects" / sha[:2]).mkdir(parents=True, exist_ok=True)
+    (depot / "objects" / sha[:2] / sha[2:]).write_bytes(_zlib.compress(brut))
+    (depot / "refs" / "heads" / "main").write_text(sha + "\n")
+    return sha
+
+
+def test_une_mise_a_jour_attend_quand_le_depot_a_un_nouveau_commit(survivants, client):
+    """La version en service est notee au lancement ; un nouveau commit la
+    met en retard. « Mettre a jour » : build puis redemarrage. Un build qui
+    echoue laisse l'application tourner dans sa version d'avant."""
+    projet = survivants / "projet"
+    c1 = _commit_git(projet, "Premiere version")
+    assert app.start("site") is None
+    assert app.lire_processus()["site"]["commit"] == c1
+    a = app.load()["site"]
+    assert app.mise_a_jour_de("site", a) is None
+    c2 = _commit_git(projet, "Ajoute la page contact", parent=c1)
+    c3 = _commit_git(projet, "Corrige le formulaire\n\nLe detail du message.", parent=c2)
+    m = app.mise_a_jour_de("site", a)
+    assert m["commit"] == c3[:7] and m["en_service"] == c1[:7]
+    assert m["message"] == "Corrige le formulaire" and m["commits"] == 2
+    # L'administrateur le voit dans la liste, et sur son hub.
+    _admin(client)
+    (ligne,) = [x for x in client.get("/api/apps").get_json()["apps"] if x["name"] == "site"]
+    assert ligne["mise_a_jour"]["commit"] == c3[:7] and ligne["version_en_service"] == c1[:7]
+    (tuile,) = [x for x in client.get("/api/mes-apps").get_json()["apps"] if x["name"] == "site"]
+    assert tuile["mise_a_jour"] is True
+    # Mettre a jour : un nouveau processus, sur le dernier commit.
+    pid = app.procs["site"].pid
+    r = client.post("/api/apps/site/mettre-a-jour")
+    assert r.status_code == 200, r.data
+    assert app.procs["site"].pid != pid
+    assert app.lire_processus()["site"]["commit"] == c3
+    assert app.mise_a_jour_de("site", app.load()["site"]) is None
+    d = app.load()["site"]["derniere_maj"]
+    assert d["ok"] is True and d["commit"] == c3[:7] and d["auto"] is False
+    journal = (survivants / "logs" / "site.log").read_text()
+    assert f"Mise à jour vers {c3[:7]} : réussie." in journal
+    # Un build qui echoue : l'application garde sa version, et le dit.
+    apps = app.load()
+    apps["site"]["build_command"] = "false"
+    app.save(apps)
+    _commit_git(projet, "Casse le build", parent=c3)
+    pid = app.procs["site"].pid
+    r = client.post("/api/apps/site/mettre-a-jour")
+    assert r.status_code == 409 and "version d'avant" in r.get_json()["error"]
+    assert app.procs["site"].pid == pid and app.is_running("site")
+    assert app.lire_processus()["site"]["commit"] == c3
+    assert app.load()["site"]["derniere_maj"]["ok"] is False
+    # Les applications par defaut se mettent a jour avec CodeLab.
+    assert client.post("/api/apps/diagnostic/mettre-a-jour").status_code == 403
+
+
+def test_apres_un_build_la_version_en_service_est_celle_du_build(survivants):
+    """Une application a build tourne sur la sortie de son build : un simple
+    redemarrage, sans build, ne met pas en service le dernier commit."""
+    projet = survivants / "projet"
+    apps = app.load()
+    apps["site"]["build_command"] = "true"
+    app.save(apps)
+    c1 = _commit_git(projet, "Premiere version")
+    assert app.run_build("site") == (True, None)
+    c2 = _commit_git(projet, "Seconde version", parent=c1)
+    assert app.start("site") is None
+    assert app.lire_processus()["site"]["commit"] == c1
+    assert app.mise_a_jour_de("site", app.load()["site"])["commit"] == c2[:7]
+
+
+def test_la_mise_a_jour_automatique_attend_la_fin_des_commits(survivants, client, monkeypatch):
+    """Un agent commite par rafales : la mise a jour automatique attend
+    DELAI_MAJ_AUTO sans nouveau commit. Un echec n'est pas retente sur le
+    meme commit, et l'administrateur en est prevenu."""
+    import threading as _threading
+    projet = survivants / "projet"
+    c1 = _commit_git(projet, "Premiere version")
+    assert app.start("site") is None
+    _admin(client)
+    assert client.put("/api/apps/site/maj-auto", json={"actif": "oui"}).status_code == 400
+    assert client.put("/api/apps/diagnostic/maj-auto", json={"actif": True}).status_code == 403
+    assert client.put("/api/apps/site/maj-auto", json={"actif": True}).get_json()["maj_auto"] is True
+    assert app.load()["site"]["maj_auto"] is True
+    prevenus = []
+    monkeypatch.setattr(app, "notifier_compte", lambda *a, **k: prevenus.append(a))
+
+    def tour():
+        app.maj_auto_tick()
+        for t in _threading.enumerate():
+            if t.name == "maj-site":
+                t.join(30)
+
+    c2 = _commit_git(projet, "Ajoute la page contact", parent=c1)
+    tour()                                   # le commit vient d'arriver : on attend
+    assert app.lire_processus()["site"]["commit"] == c1
+    commit, vu = app._maj_vues["site"]
+    app._maj_vues["site"] = (commit, vu - app.DELAI_MAJ_AUTO - 1)
+    tour()
+    assert app.lire_processus()["site"]["commit"] == c2
+    assert app.load()["site"]["derniere_maj"]["auto"] is True
+    assert f"Mise à jour automatique vers {c2[:7]} : réussie." in (survivants / "logs" / "site.log").read_text()
+    # Un build qui echoue : une fois, pas en boucle, et l'administrateur le sait.
+    apps = app.load()
+    apps["site"]["build_command"] = "false"
+    app.save(apps)
+    _commit_git(projet, "Casse le build", parent=c2)
+    tour()
+    commit, vu = app._maj_vues["site"]
+    app._maj_vues["site"] = (commit, vu - app.DELAI_MAJ_AUTO - 1)
+    tour()
+    tour()
+    assert len(prevenus) == 1 and "mise à jour impossible" in prevenus[0][1]
+    assert app.lire_processus()["site"]["commit"] == c2 and app.is_running("site")
+    # Eteinte, plus rien ne se fait seul.
+    assert client.put("/api/apps/site/maj-auto", json={"actif": False}).status_code == 200
+    assert "maj_auto" not in app.load()["site"]
+    assert "maj_auto" in app.CONFIGURATION_EFFACEE and "derniere_maj" in app.CONFIGURATION_EFFACEE
+
+
+def test_une_application_lancee_avant_la_version_en_service_est_tenue_pour_a_jour(survivants):
+    """Lancee par un panneau d'avant la migration 10 (pas de commit note),
+    reprise au redemarrage : elle est tenue pour a jour plutot que
+    d'annoncer, a tort, une mise a jour."""
+    projet = survivants / "projet"
+    c1 = _commit_git(projet, "Premiere version")
+    assert app.start("site") is None
+    with app.stockage.transaction(app.DB_FILE) as cx:
+        cx.execute("UPDATE processus SET commit_ = ''")
+    app.procs.clear()                       # le panneau redemarre
+    assert "site (pid" in " ".join(app.adopter_processus_survivants())
+    assert app.lire_processus()["site"]["commit"] == c1
+    assert app.mise_a_jour_de("site", app.load()["site"]) is None
+
+
+def test_la_migration_10_garde_les_processus_notes(tmp_path):
+    """Ajoutee a la fin, jouee sur une base de la version 9 : la ligne reste,
+    avec un commit vide."""
+    import sqlite3
+    chemin = str(tmp_path / "v9.db")
+    cx = sqlite3.connect(chemin)
+    for script in app.stockage.MIGRATIONS[:9]:
+        for instruction in app.stockage._instructions(script):
+            cx.execute(instruction)
+    cx.execute("PRAGMA user_version = 9")
+    cx.execute("INSERT INTO processus (nom, pid, depuis) VALUES ('site', 42, 1)")
+    cx.commit()
+    cx.close()
+    (ligne,) = app.stockage.lire(chemin, "SELECT * FROM processus")
+    assert ligne["pid"] == 42 and ligne["commit_"] == ""
+    assert app.stockage.lire(chemin, "PRAGMA user_version")[0][0] == app.stockage.VERSION
+
+
+def test_les_commits_se_lisent_sans_git_et_sans_suivre_de_lien(tmp_path):
+    """Le depot est ecrit par le projet : le panneau (root) n'y lance pas git
+    (sa configuration executerait des commandes), et lit les objets sans
+    suivre de lien au dernier maillon, taille bornee."""
+    projet = tmp_path / "projet"
+    c1 = _commit_git(projet, "Premiere version")
+    assert app.message_du_commit(str(projet), c1) == "Premiere version"
+    assert app.message_du_commit(str(projet), "../../etc/passwd") == ""
+    objet = projet / ".git" / "objects" / c1[:2] / c1[2:]
+    secret = tmp_path / "secret"
+    import zlib as _zlib
+    secret.write_bytes(_zlib.compress(b"commit 20\0tree x\n\nSECRET DU PANNEAU"))
+    objet.unlink()
+    objet.symlink_to(secret)
+    assert app.message_du_commit(str(projet), c1) == ""
+    objet.unlink()
+    objet.write_bytes(b"\0" * (app.COMMIT_OBJET_MAX + 1))
+    assert app.message_du_commit(str(projet), c1) == ""
+    # Un historique qui ne mene pas a la version en service : ecart inconnu.
+    assert app.commits_entre(str(projet), c1, "f" * 40) is None
+    source = _page_panneau("app.py")
+    bloc = source.split("# ---------------------------- les mises a jour")[1].split("# ------------------------- historique")[0]
+    assert "subprocess" not in bloc and '"git"' not in bloc
+
+
+def test_la_fiche_propose_la_mise_a_jour_et_la_case_automatique():
+    """La fiche : « Mettre a jour » en tete quand un commit attend, la carte
+    des mises a jour avec sa case ; la liste porte un badge ; le resume du
+    hub de l'administrateur compte ce qui attend."""
+    page = _page_panneau("dashboard.html")
+    carte = page.split('<div class="card zone" id="fa-maj">')[1].split('<!-- La video')[0]
+    assert 'data-changer="majAutoChangee"' in carte and "Mettre à jour automatiquement" in carte
+    assert "'app-mettre-a-jour': n => mettreAJour(n)," in page
+    actions = page.split("function peindreActionsFiche(a, prive, parDefaut){")[1].split("\n}")[0]
+    assert 'if(a.mise_a_jour) b.push(`<button class="btn btn-primary" data-agir="app-mettre-a-jour"' in actions
+    assert "${badgeEtat(a)}${pilleMiseAJour(a)}" in page
+    assert "majAutoChangee(){ basculerMajAuto(this.dataset.cible, this.checked); }," in page
+    assert "à mettre à jour</a>" in page
+    assert ".pill.maj{color:var(--accent);background:var(--accent-soft)}" in page
+
+
 # ------------------------- audit des dependances des projets -------------------------
 
 

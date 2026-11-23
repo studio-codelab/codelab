@@ -278,6 +278,19 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 - **Démarrer, arrêter, redémarrer.**
 - **Build** à la demande. Pendant un build, « Démarrer » est grisé (« Build en cours… ») et le serveur
   refuse le démarrage : l'application partirait sur des dépendances à moitié installées.
+- **Mises à jour** (administrateur) : le panneau note le commit que chaque lancement met en service
+  (celui du dernier build quand il y en a un). Quand le dépôt du projet en a un plus récent (l'agent
+  a commité depuis le poste), l'application est **à mettre à jour** :
+  - un badge « Mise à jour » dans la liste des applications, « N à mettre à jour » sous le bonjour du
+    hub, et le bouton **Mettre à jour** en tête de la fiche ;
+  - la carte *Mises à jour* de la fiche dit combien de commits attendent, le message du dernier, la
+    version en service, et la dernière mise à jour faite (réussie ou non, à la main ou seule) ;
+  - **Mettre à jour**, c'est le build (s'il y en a un) puis le redémarrage. Le build tourne pendant
+    que l'application sert encore : s'il échoue, elle garde sa version d'avant, et le dit ;
+  - **Mettre à jour automatiquement** (une case de la carte, par application) : le panneau le fait
+    seul, deux minutes après le dernier commit (un agent commite par rafales). Un échec n'est pas
+    retenté sur le même commit, et l'administrateur reçoit une notification ;
+  - les applications par défaut (Diagnostic, Messages) se mettent à jour avec CodeLab, pas ici.
 - **Port interne attribué** automatiquement (`9101`–`9140`), passé à l'application dans `$PORT`.
   C'est ce port que montre la colonne « Port » (au survol : « Port interne ») ; tous les visiteurs
   passent par le `9002`, qui le relaie. Pour Dagster et Mailpit, c'est leur port public (`3000`,

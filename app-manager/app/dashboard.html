@@ -386,6 +386,9 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .pill.pub{color:var(--warn);background:var(--warn-bg)}
 .pill.priv{color:var(--dim);background:var(--surface2)}
 .pill.loc{color:var(--accent);background:var(--accent-soft)}
+/* Une mise a jour attend (voir « les mises a jour », app.py) : l'accent, car
+   elle appelle un geste, « Mettre a jour ». */
+.pill.maj{color:var(--accent);background:var(--accent-soft)}
 
 /* ------------------------------ boutons ------------------------------ */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
@@ -2083,6 +2086,16 @@ a.pj:hover{border-color:var(--accent)}
 .fa-pr-choix{display:flex;flex-direction:column;gap:6px;margin-top:14px;font-size:12.5px;font-weight:700;color:var(--dim)}
 .fa-pr-choix select{max-width:420px}
 .fiche-video{display:block;width:100%;max-width:640px;border-radius:12px;background:#000;margin-top:10px;aspect-ratio:16/9}
+/* La carte « Mises a jour » de la fiche : ce qui attend, sur un aplat
+   d'accent, avec son bouton ; la derniere faite ; la case automatique. */
+.maj-attend{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px;padding:12px 14px;
+ border-radius:12px;background:var(--accent-soft)}
+.maj-texte{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:3px}
+.maj-texte b{overflow-wrap:anywhere}
+.maj-texte .hint{margin:0}
+.maj-derniere{margin-top:10px}
+.maj-derniere.echec{color:var(--err)}
+.fa-maj-auto{margin-top:12px}
 .bento-carte:hover{border-color:var(--accent)}
 .bento-carte.warn{box-shadow:inset 0 0 0 2px var(--warn)}
 .bento-carte.err{box-shadow:inset 0 0 0 2px var(--err)}
@@ -2681,6 +2694,21 @@ a.pj:hover{border-color:var(--accent)}
         <div class="kv"><span class="k">Build</span><span class="v"><code id="fa-build">—</code></span></div>
         <div class="kv"><span class="k">Limite mémoire</span><span class="v" id="fa-mem">—</span></div>
       </div>
+    </div>
+    <!-- LES MISES A JOUR : la version en service, celle qui attend dans le
+         depot (un nouveau commit), le geste qui la met en service et la
+         case qui le fait seul (voir « les mises a jour », app.py). Remplie
+         par peindreMajFiche ; cachee pour un service, une application par
+         defaut ou archivee. -->
+    <div class="card zone" id="fa-maj">
+      <div class="card-top"><div class="card-name"><b>Mises à jour</b>
+        <div class="path" id="fa-maj-sous"></div></div></div>
+      <div id="fa-maj-corps"></div>
+      <label class="choix-ligne fa-maj-auto"><input type="checkbox" id="fa-maj-auto" data-changer="majAutoChangee">
+        Mettre à jour automatiquement</label>
+      <div class="hint">Quand un nouveau commit arrive dans le dépôt du projet, CodeLab fait le
+        build et redémarre l'application, après deux minutes sans autre commit. Un build qui
+        échoue la laisse dans sa version d'avant.</div>
     </div>
     <!-- La video de presentation (video/presentation.mp4 du projet) : la
          voir, et choisir si le hub la montre. -->

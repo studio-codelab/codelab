@@ -291,6 +291,7 @@ const ACTIONS = {
   'galerie-ajouter': (n,d) => galerieAjouter(n, d.taille, d.app),
   'app-redemarrer':  n => restartApp(n),
   'app-build':       n => buildApp(n),
+  'app-mettre-a-jour': n => mettreAJour(n),
   'app-visibilite':  n => basculerVisibilite(n),
   'passkey-retirer': id => pkSupprimer(id),
   'compte-ouvrir':   n => usOuvrir(n),
@@ -2062,6 +2063,39 @@ function peindrePresentationFiche(a){
        <select data-changer="presentation-fichier" data-cible="${esc(a.name)}">${optionsVideos(a)}</select></label>`);
   chargerVideosProjet(a.name);
 }
+/* LES MISES A JOUR, sur la fiche (voir « les mises a jour », app.py) : ce
+   qui tourne, ce qui attend dans le depot, la derniere faite, et la case
+   automatique. Rien pour un service, une application par defaut (elles se
+   mettent a jour avec CodeLab) ou archivee. */
+const SVG_MAJ='<svg viewBox="0 0 24 24"><path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>';
+function texteMiseAJour(m){
+  const n = m.commits==null ? '' : m.commits>1 ? m.commits+' commits' : '1 commit';
+  return (n ? n+' · ' : '') + (m.message ? '« '+m.message+' »' : 'commit '+m.commit);
+}
+function pilleMiseAJour(a){
+  return a.mise_a_jour
+    ? `<span class="pill maj" title="${esc(texteMiseAJour(a.mise_a_jour))}"><i></i>Mise à jour</span>` : '';
+}
+function peindreMajFiche(a){
+  const carte=$('fa-maj'); if(!carte) return;
+  const sans = a.externe || a.par_defaut || a.archivee;
+  carte.style.display = sans ? 'none' : '';
+  if(sans) return;
+  const m=a.mise_a_jour, d=a.derniere_maj;
+  $('fa-maj-sous').textContent = m ? 'Une nouvelle version attend dans le dépôt du projet.'
+    : !a.running ? 'Arrêtée : rien ne tourne à mettre à jour.'
+    : a.version_en_service ? 'À jour : le commit '+a.version_en_service+' est en service.' : 'À jour.';
+  const lignes=[];
+  if(m) lignes.push(`<div class="maj-attend">
+      <div class="maj-texte"><b>${esc(texteMiseAJour(m))}</b>
+        <span class="hint">En service : ${esc(m.en_service)} · dans le dépôt : ${esc(m.commit)}</span></div>
+      <button class="btn btn-primary btn-sm" data-agir="app-mettre-a-jour" data-cible="${esc(a.name)}">${SVG_MAJ}Mettre à jour</button></div>`);
+  if(d) lignes.push(`<div class="hint maj-derniere${d.ok ? '' : ' echec'}">Dernière mise à jour${d.auto ? ' automatique' : ''}
+      (${esc(d.commit||'?')}) : ${esc(depuis(d.ts))}, ${d.ok ? 'réussie.' : 'échouée — '+esc(d.erreur||'')}</div>`);
+  remplir($('fa-maj-corps'), lignes.join(''));
+  const c=$('fa-maj-auto');
+  c.checked=!!a.maj_auto; c.dataset.cible=a.name;
+}
 /* LE FICHIER DE LA PRESENTATION : video/presentation.mp4 par defaut, ou
    toute autre video du dossier du projet (le serveur en dresse la liste,
    et refuse ce qui n'y est pas). La liste se charge a l'ouverture de la
@@ -2228,9 +2262,11 @@ function peindreResumeHub(){
     const enLigne=toutes.filter(a=>etatApp(a)[0]==='on').length;
     const soucis=toutes.filter(a=>['err','warn'].includes(etatApp(a)[0])).length;
     const msg=nonLuesMessages();
+    const aJour=hubApps.filter(a=>a.mise_a_jour).length;
     morceaux=[`<b>${chiffre('resume-en-ligne', enLigne)}</b> sur ${toutes.length} en ligne`,
       soucis ? `<b class="resume-souci">${chiffre('resume-soucis', soucis)}</b> à regarder` : '',
-      msg ? `<b>${chiffre('resume-msg', msg)}</b> message${msg>1?'s':''} à lire` : ''];
+      msg ? `<b>${chiffre('resume-msg', msg)}</b> message${msg>1?'s':''} à lire` : '',
+      aJour ? `<a href="/applications" data-agir="showSection" data-args='["apps"]'><b>${chiffre('resume-maj-admin', aJour)}</b> à mettre à jour</a>` : ''];
   }else{
     const neuves=hubApps.filter(a=>a.nouvelle).length;
     const maj=hubApps.filter(a=>!a.nouvelle && a.nouvelle_version).length;
@@ -2801,7 +2837,7 @@ function render(){
       return `<article class="ap-carte ${c}" data-agir="app-ouvrir" data-cible="${esc(a.name)}">
         <div class="ap-carte-haut"><img src="${icone(a.name)}" alt="">
           <div class="ap-carte-titre"><b>${esc(nomAffiche(a))}</b><span>${esc(a.description||a.name)}</span></div></div>
-        <div class="ap-carte-pills">${badgeEtat(a)}${badgeVis(a)}${a.categorie?`<span class="pill neutre"><i></i>${esc(a.categorie)}</span>`:''}</div>
+        <div class="ap-carte-pills">${badgeEtat(a)}${pilleMiseAJour(a)}${badgeVis(a)}${a.categorie?`<span class="pill neutre"><i></i>${esc(a.categorie)}</span>`:''}</div>
         ${a.externe ? `<div class="hint">${esc(TEXTE_SERVICE(a))}</div>`
           : a.archivee ? `<div class="hint">${esc(texteArchive(a))}</div>`
           : `<div class="ap-jauges">${apJauge(a.cpu_percent||0, 100, 'CPU '+(a.cpu_percent||0).toFixed(1)+' %')}
@@ -2824,7 +2860,7 @@ function render(){
       <td><div class="tbl-nom"><img src="${icone(a.name)}" alt="">
         <div style="min-width:0"><div class="n">${esc(nomAffiche(a))}</div>
         ${a.description?`<div class="d">${esc(a.description)}</div>`:''}</div></div></td>
-      <td>${badgeEtat(a)}</td>
+      <td>${badgeEtat(a)}${pilleMiseAJour(a)}</td>
       <td>${badgeVis(a)}</td>
       ${avecCat ? `<td>${a.categorie ? esc(a.categorie) : '<span class="hint">—</span>'}</td>` : ''}
       <td class="tbl-num" title="${a.externe ? 'Port public du service' : 'Port interne ($PORT), relayé par le port des applications'}">${a.port ? esc(String(a.port)) : '—'}</td>
@@ -2916,6 +2952,23 @@ async function restartApp(n){ return uneAction(n, async()=>{
   else notifier('« '+n+' » a redémarré.');
   setTimeout(refresh,500);
 }); }
+/* METTRE A JOUR : build (s'il y en a un) puis redemarrage, cote serveur.
+   Le journal s'ouvre pour un build, qui peut durer. */
+async function mettreAJour(n){ return uneAction(n, async()=>{
+  const a=appParNom(n);
+  if(a && a.has_build){ ouvrirFiche(n); ficheOnglet('journal'); }
+  const r=await fetch('/api/apps/'+encodeURIComponent(n)+'/mettre-a-jour',{method:'POST'});
+  if(!r.ok) notifier(await echec(r, "La mise à jour n'a pas abouti."), 'err');
+  else notifier('« '+nomAffiche(a||{name:n})+' » est à jour.');
+  setTimeout(refresh,400);
+}); }
+async function basculerMajAuto(n, actif){
+  const r=await fetch('/api/apps/'+encodeURIComponent(n)+'/maj-auto',{method:'PUT',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({actif})});
+  if(!r.ok){ notifier(await echec(r,'Réglage non enregistré.'),'err'); refresh(); return; }
+  notifier(actif ? 'Mise à jour automatique activée.' : 'Mise à jour automatique désactivée.');
+  refresh();
+}
 async function buildApp(n){ return uneAction(n, async()=>{
   ouvrirFiche(n); ficheOnglet('journal');
   const r=await fetch('/api/build/'+n,{method:'POST'});
@@ -3206,6 +3259,7 @@ function peindreFiche(){
   $('fa-mem').textContent=a.max_memory_mb ? a.max_memory_mb+' Mo' : 'aucune';
   $('fa-mesures').style.display = externe ? 'none' : '';
   peindrePresentationFiche(a);
+  peindreMajFiche(a);
   $('fa-cpu').textContent=(a.cpu_percent||0).toFixed(1)+'%';
   $('fa-ram').textContent=Math.round(a.memory_mb||0)+' Mo';
 
@@ -3248,6 +3302,10 @@ function peindreActionsFiche(a, prive, parDefaut){
   b.push(`<button class="btn ${a.running?'btn-arreter':'btn-demarrer'}" data-agir="app-basculer" data-cible="${esc(a.name)}"
     ${enBuild(a) ? 'disabled aria-busy="true" title="Le build doit se terminer avant le démarrage."' : ''}>
     ${a.running?svgStop+'Arrêter':enBuild(a)?svgPlay+'Build en cours…':svgPlay+'Démarrer'}</button>`);
+  /* Une nouvelle version attend dans le depot : le geste qui la met en
+     service, en tete (voir « les mises a jour », app.py). */
+  if(a.mise_a_jour) b.push(`<button class="btn btn-primary" data-agir="app-mettre-a-jour" data-cible="${esc(a.name)}"
+    title="${esc(texteMiseAJour(a.mise_a_jour))}">${SVG_MAJ}Mettre à jour</button>`);
   b.push(`<button class="btn btn-refaire" data-agir="app-redemarrer" data-cible="${esc(a.name)}" ${a.running?'':'disabled'}>
     ${svgRe}Redémarrer</button>`);
   if(a.has_build) b.push(`<button class="btn btn-refaire" data-agir="app-build" data-cible="${esc(a.name)}" ${a.build_en_cours?'disabled':''}>${svgBuild}Build</button>`);
@@ -5784,6 +5842,7 @@ const APPELS = {
   creerSansInviter(){ invFormulaire(false); usFormulaire(true); },
   deposerLesPieces(cle){ deposerPieces(cle, this.files); this.value=''; },
   logoEnvoyer(){ logoEnvoyer(this); },
+  majAutoChangee(){ basculerMajAuto(this.dataset.cible, this.checked); },
   notifBasculer(){ notifBasculer(this); },
   notifEssai(){ notifEssai(this); },
   parametresDuCompte(){ allerA('parametres'); paramOnglet('compte'); },
