@@ -22,6 +22,7 @@ du `docker-compose.yml`). Les données vivent sous `/DATA/AppData/codelab/`.
 | Le disque est plein | [6](#6-le-disque-est-plein) |
 | Il faut restaurer | [7](#7-restaurer) |
 | L'adresse depuis internet (Tailscale) ne répond plus | [8](#8-ladresse-depuis-internet-tailscale-ne-répond-plus) |
+| VS Code ou un agent (Claude Code, Codex) redémarre sans cesse | [9](#9-vs-code-ou-un-agent-redémarre-sans-cesse) |
 
 ---
 
@@ -63,8 +64,11 @@ Le panneau la redémarre seul. Une alerte par mail part quand elle ne redémarre
    la cause probable de l'arrêt.
 2. **Le fichier du journal**, si la page ne suffit pas :
    `/DATA/AppData/codelab/app-manager/logs/<nom>.log`.
-3. **Corriger, puis Build et Redémarrer** depuis la fiche. Une dépendance cassée par la dernière
-   modification se répare souvent en revenant au commit précédent (`git log`, `git revert`).
+3. **Corriger, puis Mettre à jour** depuis la fiche (build puis redémarrage). Une dépendance cassée
+   par la dernière modification se répare souvent en revenant au commit précédent (`git log`,
+   `git revert`). Une **mise à jour automatique** qui échoue laisse l'application dans sa version
+   d'avant : la carte *Mises à jour* de la fiche et le journal disent pourquoi, et elle n'est pas
+   retentée tant qu'aucun nouveau commit n'arrive (décocher puis recocher la case la relance).
 4. **Sa base** se restaure seule, sans toucher aux autres ([7](#7-restaurer)).
 5. **« Le port … est encore tenu »** : un reste de l'application tient son port. Le panneau termine
    d'office ce qui reste d'une application morte avant de la relancer ; si le message persiste,
@@ -213,6 +217,37 @@ machine.
    l'ancienne machine de la console Tailscale, sinon la nouvelle prend un nom en `-1`.
 4. **Couper l'accès tout de suite** : éteindre l'interrupteur. tailscaled s'arrête et l'adresse ne
    répond plus. Elle revient, la même, au rallumage.
+
+## 9. VS Code ou un agent redémarre sans cesse
+
+VS Code se reconnecte, « l'hôte d'extensions s'est arrêté », Claude Code ou Codex s'interrompt. La
+cause habituelle : le poste (`codelab-dev`) a atteint son plafond de mémoire (1 280 Mo) et le noyau
+a tué un de ses processus. Claude Code pèse à lui seul environ 470 Mo.
+
+1. **Le confirmer.** Dans un terminal du poste (celui de VS Code) :
+   ```bash
+   codelab memory
+   ```
+   Il dit le plafond, l'utilisé et le pic, combien de processus ont été tués, quand, et ce qui
+   prend la place. Depuis le serveur, le guetteur du poste a écrit chaque manque :
+   ```bash
+   docker logs codelab-dev 2>&1 | grep "memoire pleine"
+   ```
+   La sonde « mémoire du poste » du **Diagnostic** le signale aussi. `docker inspect` ne le voit
+   pas : `OOMKilled` n'y passe à `true` que si le processus principal (sshd) est tué.
+2. **Alléger.** Ferme les fenêtres VS Code et les terminaux qui ne servent pas, une seule session
+   d'agent à la fois, et désactive sur ce poste les extensions inutiles (Codex si tu n'utilises que
+   Claude Code, ou l'inverse). Les réglages qui allègent VS Code sont déjà posés (voir
+   [`dev/README.md`](dev/README.md)).
+3. **Si la machine a plus de 4 Go**, remonte le plafond de `codelab-dev` en gardant le même
+   rapport : `mem_limit: 2560m` pour 8 Go (dans `docker-compose-casaos.yml` :
+   `deploy.resources.limits.memory`), et l'ensemble des plafonds proportionnellement (voir l'en-tête
+   de `docker-compose.yml`). Puis :
+   ```bash
+   docker compose up -d codelab-dev
+   ```
+   Les projets, les extensions et la connexion des agents vivent hors du conteneur : rien ne se
+   perd.
 
 ## Après l'incident
 

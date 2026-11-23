@@ -1232,6 +1232,56 @@ def check_espace_disque():
     return Etat.OK, "espace disque", " | ".join(lignes)
 
 
+# LA MEMOIRE DU POSTE DE DEVELOPPEMENT. Vecu : « VSCode plante sans arret, je
+# ne peux pas utiliser claude code correctement !!! ». Au plafond memoire de
+# codelab-dev, le noyau tue un processus (l'hote d'extensions de VS Code,
+# Claude Code...) et VS Code redemarre sans en dire la cause. Le poste la
+# releve lui-meme (« codelab memory --guetter », dev/codelab) dans
+# /workspace/.codelab/poste-memoire.json : des compteurs et des noms de
+# familles de processus, rien de secret. La sonde le lit ; elle ne peut pas
+# lire le cgroup d'un autre conteneur.
+MEMOIRE_POSTE_JOURS = 7
+# Le nom de la commande, tel qu'il se tape (sans accent : c'est une commande).
+COMMANDE_MEMOIRE_DU_POSTE = "codelab memory"
+
+
+def check_memoire_du_poste(workspace=None):
+    """Le poste de developpement a-t-il manque de memoire ces derniers jours ?"""
+    chemin = os.path.join(workspace or WORKSPACE, ".codelab", "poste-memoire.json")
+    try:
+        with open(chemin, encoding="utf-8") as f:
+            etat = json.load(f)
+    except FileNotFoundError:
+        return (Etat.SANS_OBJET, "mémoire du poste",
+                "pas encore de relevé : codelab-dev l'écrit dès son démarrage "
+                "(une image plus ancienne ne le fait pas).")
+    except (OSError, ValueError) as e:
+        return (Etat.ALERTE, "mémoire du poste",
+                f"{chemin} illisible ({type(e).__name__}).")
+    if not isinstance(etat, dict):
+        return Etat.ALERTE, "mémoire du poste", f"{chemin} illisible."
+    plafond, pic = etat.get("plafond_mo"), etat.get("pic_mo")
+    mesure = (f"pic {pic} Mo sur {plafond} Mo" if pic and plafond
+              else f"plafond {plafond} Mo" if plafond else "plafond inconnu")
+    depuis = time.time() - MEMOIRE_POSTE_JOURS * 86400
+    recents = [e for e in etat.get("evenements") or []
+               if isinstance(e, dict) and isinstance(e.get("ts"), (int, float))
+               and e["ts"] >= depuis and e.get("tues")]
+    if not recents:
+        return (Etat.OK, "mémoire du poste",
+                f"aucun processus tué faute de mémoire en {MEMOIRE_POSTE_JOURS} jours ({mesure}).")
+    tues = sum(int(e.get("tues") or 0) for e in recents)
+    dernier = recents[-1]
+    heures = max(0, int((time.time() - dernier["ts"]) // 3600))
+    gros = ", ".join(f"{f} {o} Mo" for f, o in (dernier.get("gros") or [])
+                     if isinstance(f, str) and isinstance(o, (int, float)))
+    return (Etat.ALERTE, "mémoire du poste",
+            f"{tues} processus tué(s) faute de mémoire en {MEMOIRE_POSTE_JOURS} jours, le dernier "
+            f"il y a {heures} h" + (f" (les plus gros : {gros})" if gros else "") +
+            f" -- VS Code et ses agents redémarrent. Dans un terminal du poste : "
+            f"« {COMMANDE_MEMOIRE_DU_POSTE} » ; voir INCIDENTS.md ({mesure}).")
+
+
 # Une sauvegarde de plus de deux jours n'est pas une panne -- la stack rend
 # son service -- mais c'est ce qu'on veut savoir AVANT d'en avoir besoin. Le
 # jour ou on la cherche, il est trop tard pour decouvrir qu'elle date d'un
@@ -1989,7 +2039,7 @@ THEMES = [
     ("applications", "Applications",
      "Ce que le panneau porte, et dans quel état."),
     ("ressources", "Ressources",
-     "Le disque, les journaux, et la place qui reste."),
+     "Le disque, les journaux, la place qui reste, et la mémoire du poste."),
 ]
 
 # Quelle sonde appartient a quelle thematique, par le nom qu'elle se donne.
@@ -2017,6 +2067,7 @@ THEME_DES_SONDES = {
     "applications déclarées": "applications",
     "espace disque": "ressources",
     "sauvegardes": "ressources",
+    "mémoire du poste": "ressources",
 }
 
 
@@ -2196,6 +2247,9 @@ SEVERITE_MAX = {
     # mettre au rang 1 enverrait un mail de nuit pour un type que personne
     # n'utilise.
     "pgvector": Etat.ALERTE,
+    # Le poste de developpement qui manque de memoire : VS Code et ses agents
+    # redemarrent, la stack, elle, rend son service.
+    "mémoire du poste": Etat.ALERTE,
 }
 
 
@@ -2249,6 +2303,7 @@ def run_all(env_file=None, workspace=None, ssh_dir=None):
         _executer_sonde("check_applications", lambda: check_applications()),
         _executer_sonde("check_espace_disque", lambda: check_espace_disque()),
         _executer_sonde("check_sauvegardes", lambda: check_sauvegardes()),
+        _executer_sonde("check_memoire_du_poste", lambda: check_memoire_du_poste(workspace)),
         _executer_sonde("check_surface_exposee", lambda: check_surface_exposee()),
     ]
     return [_hierarchiser(r) for r in resultats]

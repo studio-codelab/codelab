@@ -1139,9 +1139,15 @@ def test_le_mot_a_l_administrateur_a_sa_propre_rubrique():
     # du panneau, plus un onglet des parametres.
     assert '<button data-p="message"' not in page and 'id="param-message"' not in page
     assert '<div id="sec-message" class="section"' in page
-    entree = page.split('data-sec="message"')[1].split(">")[0]
-    assert 'data-agir="allerA" data-args=\'["message"]\'' in entree
+    # Vecu ensuite : « Creer une application message plutot qu'un onglet pour
+    # les utilisateurs ». La rubrique ne s'ouvre plus par une entree du menu
+    # mais par sa tuile du hub (voir test_un_compte_ouvre_ses_messages_depuis_
+    # une_tuile_du_hub), a la meme adresse, et ramene au hub.
+    assert 'data-sec="message"' not in page
     assert "message:'/messages'" in page
+    rubrique = page.split('<div id="sec-message" class="section"')[1].split("</h2>")[0]
+    assert 'data-agir="showSection" data-args=\'["hub"]\'' in rubrique
+    assert '<img src="/api/icon/messages" alt="">' in rubrique
 
     # Le formulaire est DANS cette rubrique, et plus dans le hub.
     hub = page.split('<div id="sec-hub"')[1].split('<!-- ==================== VUE')[0]
@@ -1920,8 +1926,14 @@ def test_les_parametres_s_ouvrent_depuis_le_menu_du_compte():
     assert 'id="acct-parametres" data-agir="allerA" data-args=\'["parametres"]\'' in page
     assert '#sec-parametres{display:grid' in page
     assert '.sidebar{top:auto;bottom:0' in page
-    # Un compte utilisateur garde ses entrees : le hub et ses messages.
-    assert 'class="side-item utilisateur-seul"' in page
+    # Un compte utilisateur n'a plus de menu : ses messages sont une tuile de
+    # son hub, et un menu d'une seule entree (« Hub ») ne mene nulle part. Ni
+    # pilule, ni barre du bas -- et pas de place gardee pour elle.
+    assert 'class="side-item utilisateur-seul"' not in page
+    assert ".compte-utilisateur #sidebar,.compte-utilisateur #btn-menu{display:none}" in page
+    assert ".compte-utilisateur #sidebar{display:flex}" not in page
+    tel = page.split("/* Telephone : le menu devient la barre du bas")[1].split("\n}\n")[0]
+    assert ".compte-utilisateur{--barre-bas:0px}" in tel
     assert "document.body.classList.add('compte-utilisateur')" in page
     login = _page_panneau("login.html")
     # Face ID / Touch ID n'est plus cache dans le style Design : en tete.
@@ -3264,8 +3276,31 @@ def test_au_telephone_chaque_taille_de_widget_a_sa_forme():
     assert ".bw-moyen{min-height:150px}" in tel
     assert ".bw-grand{min-height:300px}" in tel
     assert ".bw-une{min-height:0}" in tel
-    assert ".bw-grand .bw-apercu{min-height:280px}" in tel
+    assert ".bw-grand.bw-une .bw-apercu{min-height:280px}" in tel
     assert "min-height:400px" not in tel and "min-height:220px" not in tel
+
+
+def test_au_telephone_derniere_ouverte_moyen_est_une_bande_et_grand_une_carte():
+    """Vecu : « Widget de derniere ouverture Grand est la meme que Moyen sur
+    mobile, differencie les tailles ». Les deux etaient une carte en colonne,
+    l'apercu seul plus haut en Grand : 293 et 403 px a 390 px de large, la
+    meme forme. Moyen redevient la bande de l'ordinateur (l'apercu a gauche,
+    le nom a droite, 150 px), Grand reste la carte haute (apercu de 280 px).
+    Rendu verifie dans Chromium : 151 et 403 px, en cartes et en icones."""
+    tel = _bloc_telephone(_page_panneau("dashboard.html"))
+    # Plus rien ne remet la bande Moyen en colonne au telephone : elle garde
+    # le « flex-direction:row » de l'ordinateur.
+    assert ".bw-moyen.bw-une{flex-direction:column}" not in tel
+    assert "flex-direction:column" not in tel.split(".bw-moyen.bw-une{")[1].split("}")[0]
+    assert ".bw-moyen.bw-une{min-height:150px}" in tel
+    assert ".bw-moyen.bw-une .bw-apercu{flex:0 0 40%;min-height:0}" in tel
+    # Aucune hauteur d'apercu commune aux deux tailles : c'est elle qui les
+    # rendait jumelles.
+    assert re.search(r"(^|\n)\s*\.bw-apercu\{min-height", tel) is None
+    # Le nom prend sa ligne, le badge « Nouvelle version » passe dessous.
+    assert ".bw-moyen.bw-une .bw-une-nom{flex-basis:100%" in tel
+    page = _page_panneau("dashboard.html")
+    assert ".bw-moyen.bw-une{flex-direction:row}" in page
 
 
 def test_un_mot_a_l_admin_garde_sa_zone_de_texte_en_taille_moyen():
@@ -4155,10 +4190,14 @@ def test_une_application_par_defaut_est_reservee_a_l_administrateur(hub_dagster)
     noms = {a["name"] for a in d["apps"]} | {a["name"] for a in d.get("masquees", [])}
     assert not (noms & set(app.APPS_PAR_DEFAUT)), sorted(noms)
     # Dagster n'apparait pas : son interface execute du code sur la machine.
-    # Et rien d'autre n'apparait a sa place : le hub d'un compte utilisateur
-    # ne porte aucune tuile de service.
+    # Et aucune tuile de service n'apparait a sa place. La seule tuile en
+    # plus de ses projets est SA page Messages, une page du panneau (et non
+    # l'application) -- une porte qui s'ouvre.
     services = {x["name"] for x in d.get("services", [])}
-    assert services == set(), sorted(services)
+    assert services <= {app.MESSAGERIE_NOM}, sorted(services)
+    for tuile in d.get("services", []):
+        assert tuile["lien"] == "/messages" and not tuile.get("externe"), tuile
+        assert c.get(tuile["lien"]).status_code == 200
 
 
 
@@ -5303,6 +5342,218 @@ def test_le_commit_se_lit_sans_lancer_git(tmp_path):
     assert app.commit_du_projet(str(tmp_path)) is None
     page = _page_panneau("dashboard.html")
     assert "Nouvelle version" in page and "/ouverte'" in page and "keepalive:true" in page
+
+
+# ---------- les mises a jour d'une application ----------
+#
+# Vecu : « Identifier lorsqu'une app peut etre mise a jour, et proposer a
+# l'administration de la mettre a jour, ou configurer la mise a jour
+# automatique ». L'agent commite depuis le poste, l'application garde le code
+# qu'elle a charge : rien ne disait qu'elle etait en retard.
+
+def _commit_git(projet, message, parent=None):
+    """Ecrit un commit dans .git comme git le fait (objet isole, zlib), et y
+    fait pointer la branche. Sans git : le panneau ne le lance pas non plus."""
+    import hashlib
+    import zlib as _zlib
+    depot = projet / ".git"
+    (depot / "refs" / "heads").mkdir(parents=True, exist_ok=True)
+    (depot / "HEAD").write_text("ref: refs/heads/main\n")
+    corps = "tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904\n"
+    if parent:
+        corps += f"parent {parent}\n"
+    corps += "author Agent <agent> 0 +0000\ncommitter Agent <agent> 0 +0000\n\n" + message + "\n"
+    brut = f"commit {len(corps.encode())}\0".encode() + corps.encode()
+    sha = hashlib.sha1(brut).hexdigest()
+    (depot / "objects" / sha[:2]).mkdir(parents=True, exist_ok=True)
+    (depot / "objects" / sha[:2] / sha[2:]).write_bytes(_zlib.compress(brut))
+    (depot / "refs" / "heads" / "main").write_text(sha + "\n")
+    return sha
+
+
+def test_une_mise_a_jour_attend_quand_le_depot_a_un_nouveau_commit(survivants, client):
+    """La version en service est notee au lancement ; un nouveau commit la
+    met en retard. « Mettre a jour » : build puis redemarrage. Un build qui
+    echoue laisse l'application tourner dans sa version d'avant."""
+    projet = survivants / "projet"
+    c1 = _commit_git(projet, "Premiere version")
+    assert app.start("site") is None
+    assert app.lire_processus()["site"]["commit"] == c1
+    a = app.load()["site"]
+    assert app.mise_a_jour_de("site", a) is None
+    c2 = _commit_git(projet, "Ajoute la page contact", parent=c1)
+    c3 = _commit_git(projet, "Corrige le formulaire\n\nLe detail du message.", parent=c2)
+    m = app.mise_a_jour_de("site", a)
+    assert m["commit"] == c3[:7] and m["en_service"] == c1[:7]
+    assert m["message"] == "Corrige le formulaire" and m["commits"] == 2
+    # L'administrateur le voit dans la liste, et sur son hub.
+    _admin(client)
+    (ligne,) = [x for x in client.get("/api/apps").get_json()["apps"] if x["name"] == "site"]
+    assert ligne["mise_a_jour"]["commit"] == c3[:7] and ligne["version_en_service"] == c1[:7]
+    (tuile,) = [x for x in client.get("/api/mes-apps").get_json()["apps"] if x["name"] == "site"]
+    assert tuile["mise_a_jour"] is True
+    # Mettre a jour : un nouveau processus, sur le dernier commit.
+    pid = app.procs["site"].pid
+    r = client.post("/api/apps/site/mettre-a-jour")
+    assert r.status_code == 200, r.data
+    assert app.procs["site"].pid != pid
+    assert app.lire_processus()["site"]["commit"] == c3
+    assert app.mise_a_jour_de("site", app.load()["site"]) is None
+    d = app.load()["site"]["derniere_maj"]
+    assert d["ok"] is True and d["commit"] == c3[:7] and d["auto"] is False
+    journal = (survivants / "logs" / "site.log").read_text()
+    assert f"Mise à jour vers {c3[:7]} : réussie." in journal
+    # Un build qui echoue : l'application garde sa version, et le dit.
+    apps = app.load()
+    apps["site"]["build_command"] = "false"
+    app.save(apps)
+    _commit_git(projet, "Casse le build", parent=c3)
+    pid = app.procs["site"].pid
+    r = client.post("/api/apps/site/mettre-a-jour")
+    assert r.status_code == 409 and "version d'avant" in r.get_json()["error"]
+    assert app.procs["site"].pid == pid and app.is_running("site")
+    assert app.lire_processus()["site"]["commit"] == c3
+    assert app.load()["site"]["derniere_maj"]["ok"] is False
+    # Les applications par defaut se mettent a jour avec CodeLab.
+    assert client.post("/api/apps/diagnostic/mettre-a-jour").status_code == 403
+
+
+def test_apres_un_build_la_version_en_service_est_celle_du_build(survivants):
+    """Une application a build tourne sur la sortie de son build : un simple
+    redemarrage, sans build, ne met pas en service le dernier commit."""
+    projet = survivants / "projet"
+    apps = app.load()
+    apps["site"]["build_command"] = "true"
+    app.save(apps)
+    c1 = _commit_git(projet, "Premiere version")
+    assert app.run_build("site") == (True, None)
+    c2 = _commit_git(projet, "Seconde version", parent=c1)
+    assert app.start("site") is None
+    assert app.lire_processus()["site"]["commit"] == c1
+    assert app.mise_a_jour_de("site", app.load()["site"])["commit"] == c2[:7]
+
+
+def test_la_mise_a_jour_automatique_attend_la_fin_des_commits(survivants, client, monkeypatch):
+    """Un agent commite par rafales : la mise a jour automatique attend
+    DELAI_MAJ_AUTO sans nouveau commit. Un echec n'est pas retente sur le
+    meme commit, et l'administrateur en est prevenu."""
+    import threading as _threading
+    projet = survivants / "projet"
+    c1 = _commit_git(projet, "Premiere version")
+    assert app.start("site") is None
+    _admin(client)
+    assert client.put("/api/apps/site/maj-auto", json={"actif": "oui"}).status_code == 400
+    assert client.put("/api/apps/diagnostic/maj-auto", json={"actif": True}).status_code == 403
+    assert client.put("/api/apps/site/maj-auto", json={"actif": True}).get_json()["maj_auto"] is True
+    assert app.load()["site"]["maj_auto"] is True
+    prevenus = []
+    monkeypatch.setattr(app, "notifier_compte", lambda *a, **k: prevenus.append(a))
+
+    def tour():
+        app.maj_auto_tick()
+        for t in _threading.enumerate():
+            if t.name == "maj-site":
+                t.join(30)
+
+    c2 = _commit_git(projet, "Ajoute la page contact", parent=c1)
+    tour()                                   # le commit vient d'arriver : on attend
+    assert app.lire_processus()["site"]["commit"] == c1
+    commit, vu = app._maj_vues["site"]
+    app._maj_vues["site"] = (commit, vu - app.DELAI_MAJ_AUTO - 1)
+    tour()
+    assert app.lire_processus()["site"]["commit"] == c2
+    assert app.load()["site"]["derniere_maj"]["auto"] is True
+    assert f"Mise à jour automatique vers {c2[:7]} : réussie." in (survivants / "logs" / "site.log").read_text()
+    # Un build qui echoue : une fois, pas en boucle, et l'administrateur le sait.
+    apps = app.load()
+    apps["site"]["build_command"] = "false"
+    app.save(apps)
+    _commit_git(projet, "Casse le build", parent=c2)
+    tour()
+    commit, vu = app._maj_vues["site"]
+    app._maj_vues["site"] = (commit, vu - app.DELAI_MAJ_AUTO - 1)
+    tour()
+    tour()
+    assert len(prevenus) == 1 and "mise à jour impossible" in prevenus[0][1]
+    assert app.lire_processus()["site"]["commit"] == c2 and app.is_running("site")
+    # Eteinte, plus rien ne se fait seul.
+    assert client.put("/api/apps/site/maj-auto", json={"actif": False}).status_code == 200
+    assert "maj_auto" not in app.load()["site"]
+    assert "maj_auto" in app.CONFIGURATION_EFFACEE and "derniere_maj" in app.CONFIGURATION_EFFACEE
+
+
+def test_une_application_lancee_avant_la_version_en_service_est_tenue_pour_a_jour(survivants):
+    """Lancee par un panneau d'avant la migration 10 (pas de commit note),
+    reprise au redemarrage : elle est tenue pour a jour plutot que
+    d'annoncer, a tort, une mise a jour."""
+    projet = survivants / "projet"
+    c1 = _commit_git(projet, "Premiere version")
+    assert app.start("site") is None
+    with app.stockage.transaction(app.DB_FILE) as cx:
+        cx.execute("UPDATE processus SET commit_ = ''")
+    app.procs.clear()                       # le panneau redemarre
+    assert "site (pid" in " ".join(app.adopter_processus_survivants())
+    assert app.lire_processus()["site"]["commit"] == c1
+    assert app.mise_a_jour_de("site", app.load()["site"]) is None
+
+
+def test_la_migration_10_garde_les_processus_notes(tmp_path):
+    """Ajoutee a la fin, jouee sur une base de la version 9 : la ligne reste,
+    avec un commit vide."""
+    import sqlite3
+    chemin = str(tmp_path / "v9.db")
+    cx = sqlite3.connect(chemin)
+    for script in app.stockage.MIGRATIONS[:9]:
+        for instruction in app.stockage._instructions(script):
+            cx.execute(instruction)
+    cx.execute("PRAGMA user_version = 9")
+    cx.execute("INSERT INTO processus (nom, pid, depuis) VALUES ('site', 42, 1)")
+    cx.commit()
+    cx.close()
+    (ligne,) = app.stockage.lire(chemin, "SELECT * FROM processus")
+    assert ligne["pid"] == 42 and ligne["commit_"] == ""
+    assert app.stockage.lire(chemin, "PRAGMA user_version")[0][0] == app.stockage.VERSION
+
+
+def test_les_commits_se_lisent_sans_git_et_sans_suivre_de_lien(tmp_path):
+    """Le depot est ecrit par le projet : le panneau (root) n'y lance pas git
+    (sa configuration executerait des commandes), et lit les objets sans
+    suivre de lien au dernier maillon, taille bornee."""
+    projet = tmp_path / "projet"
+    c1 = _commit_git(projet, "Premiere version")
+    assert app.message_du_commit(str(projet), c1) == "Premiere version"
+    assert app.message_du_commit(str(projet), "../../etc/passwd") == ""
+    objet = projet / ".git" / "objects" / c1[:2] / c1[2:]
+    secret = tmp_path / "secret"
+    import zlib as _zlib
+    secret.write_bytes(_zlib.compress(b"commit 20\0tree x\n\nSECRET DU PANNEAU"))
+    objet.unlink()
+    objet.symlink_to(secret)
+    assert app.message_du_commit(str(projet), c1) == ""
+    objet.unlink()
+    objet.write_bytes(b"\0" * (app.COMMIT_OBJET_MAX + 1))
+    assert app.message_du_commit(str(projet), c1) == ""
+    # Un historique qui ne mene pas a la version en service : ecart inconnu.
+    assert app.commits_entre(str(projet), c1, "f" * 40) is None
+    source = _page_panneau("app.py")
+    bloc = source.split("# ---------------------------- les mises a jour")[1].split("# ------------------------- historique")[0]
+    assert "subprocess" not in bloc and '"git"' not in bloc
+
+
+def test_la_fiche_propose_la_mise_a_jour_et_la_case_automatique():
+    """La fiche : « Mettre a jour » en tete quand un commit attend, la carte
+    des mises a jour avec sa case ; la liste porte un badge ; le resume du
+    hub de l'administrateur compte ce qui attend."""
+    page = _page_panneau("dashboard.html")
+    carte = page.split('<div class="card zone" id="fa-maj">')[1].split('<!-- La video')[0]
+    assert 'data-changer="majAutoChangee"' in carte and "Mettre à jour automatiquement" in carte
+    assert "'app-mettre-a-jour': n => mettreAJour(n)," in page
+    actions = page.split("function peindreActionsFiche(a, prive, parDefaut){")[1].split("\n}")[0]
+    assert 'if(a.mise_a_jour) b.push(`<button class="btn btn-primary" data-agir="app-mettre-a-jour"' in actions
+    assert "${badgeEtat(a)}${pilleMiseAJour(a)}" in page
+    assert "majAutoChangee(){ basculerMajAuto(this.dataset.cible, this.checked); }," in page
+    assert "à mettre à jour</a>" in page
+    assert ".pill.maj{color:var(--accent);background:var(--accent-soft)}" in page
 
 
 # ------------------------- audit des dependances des projets -------------------------
@@ -15127,8 +15378,12 @@ def test_l_utilisateur_suit_ses_messages(boite, deux_espaces):
     assert all(m["id"] != autre for m in panneau.get("/api/mes-messages").get_json()["messages"])
     assert "suivi" in {w["id"] for w in u.get("/api/hub/disposition").get_json()["catalogue"]}
     page = _page_panneau("dashboard.html")
-    for trace in ('id="suivi-liste"', "function widgetSuivi(", "/api/mes-messages/vus", 'id="side-count-suivi"'):
+    for trace in ('id="suivi-liste"', "function widgetSuivi(", "/api/mes-messages/vus"):
         assert trace in page, trace
+    # Ce qui a avance se compte sur la tuile Messages du hub (la pastille de
+    # l'entree du menu, partie avec le menu).
+    bloc = page.split("function pastille(a){")[1].split("\n}")[0]
+    assert "if(pageDuPanneau(a)){" in bloc and "const n=mesNouveaux;" in bloc
 
 
 def test_un_message_porte_des_captures_et_des_maquettes(boite, deux_espaces):
@@ -15457,6 +15712,77 @@ def test_l_application_messages_est_reservee_a_l_administrateur(boite, deux_espa
 def app_adresse_messages():
     with app.flask_app.test_request_context("/"):
         return app.adresse_application(app.MESSAGERIE_NOM)
+
+
+def test_un_compte_ouvre_ses_messages_depuis_une_tuile_du_hub(deux_espaces, tmp_path):
+    """Vecu : « Creer une application message plutot qu'un onglet pour les
+    utilisateurs ». Un compte ecrivait a l'administrateur dans une rubrique
+    ouverte par une entree du menu ; ses Messages sont maintenant une tuile
+    de son hub, rangee, masquee et ouverte comme les autres. Elle mene a la
+    page du panneau (/messages), jamais a l'application Messages : celle-ci
+    reste reservee a l'administrateur (regle 12)."""
+    c = deux_espaces
+    dossier = tmp_path / "messages"
+    dossier.mkdir()
+    (dossier / "icon.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"><title>bulle</title></svg>')
+    apps = app.load()
+    apps[app.MESSAGERIE_NOM] = {"path": str(dossier), "command": "python3 app.py", "port": 9120,
+                                "enabled": True, "visibility": "privee"}
+    app.save(apps)
+    _connecte(c, "marie", "mot-de-passe-long")
+    d = c.get("/api/mes-apps").get_json()
+    # Pas parmi ses applications : l'application Messages lui reste fermee.
+    assert app.MESSAGERIE_NOM not in {a["name"] for a in d["apps"]}
+    tuiles = [s for s in d["services"] if s["name"] == app.MESSAGERIE_NOM]
+    assert len(tuiles) == 1
+    tuile = tuiles[0]
+    assert tuile["lien"] == "/messages" and tuile["titre"] == "Messages"
+    # Aucun etat (regle 12 bis), aucune adresse d'application.
+    assert not {"running", "listening", "url", "path", "port"} & set(tuile)
+    assert len(app.MESSAGERIE_DESCRIPTION_COMPTE) <= 40
+    # La page qu'elle ouvre est la rubrique du compte, pas la boite.
+    r = c.get("/messages")
+    assert r.status_code == 200 and '<div id="sec-message" class="section"' in r.get_data(as_text=True)
+    # Son icone est celle de l'application Messages, pas l'initiale.
+    assert b"bulle" in c.get("/api/icon/messages").data
+    # Elle se range dans la disposition du hub...
+    r = c.put("/api/hub/disposition", json={"elements": [{"t": "a", "id": app.MESSAGERIE_NOM}]})
+    assert r.status_code == 200, r.data
+    # ... et se masque, puis revient, comme une application.
+    assert c.post("/api/mes-apps/messages/masquer").status_code == 200
+    d = c.get("/api/mes-apps").get_json()
+    assert not d["services"]
+    assert [s["name"] for s in d["services_masques"]] == [app.MESSAGERIE_NOM]
+    assert c.delete("/api/mes-apps/messages/masquer").status_code == 200
+    assert [s["name"] for s in c.get("/api/mes-apps").get_json()["services"]] == [app.MESSAGERIE_NOM]
+    # Rien de cela n'ouvre l'application : la regle 12 tient.
+    with app.flask_app.test_request_context("/"):
+        from flask import session
+        session["authed"], session["role"], session["utilisateur"] = True, "utilisateur", "marie"
+        assert not app.peut_voir(app.MESSAGERIE_NOM)
+    # Une autre application par defaut ne devient pas masquable pour autant.
+    assert c.post("/api/mes-apps/diagnostic/masquer").status_code == 404
+    # L'administrateur garde l'application Messages elle-meme, sans cette tuile.
+    admin = app.flask_app.test_client()
+    _admin(admin)
+    d = admin.get("/api/mes-apps").get_json()
+    assert not any(s.get("lien") for s in d["services"])
+    assert app.MESSAGERIE_NOM in {a["name"] for a in d["apps"]}
+
+
+def test_la_tuile_messages_ouvre_la_rubrique_sur_place():
+    """La tuile d'une page du panneau suit son « lien » (un chemin de ce
+    panneau, jamais une autre origine) et ouvre la rubrique sans recharger la
+    page ; la rubrique ramene au hub."""
+    page = _page_panneau("dashboard.html")
+    assert "const pageDuPanneau = a => typeof a.lien === 'string' && /^\\/[a-z]/.test(a.lien);" in page
+    assert "const lienOuverture = a => pageDuPanneau(a) ? a.lien" in page
+    clic = page.split("$('hub-liste').addEventListener('click', e=>{")[1].split("\n});")[0]
+    assert "if(a && pageDuPanneau(a) && !(e.ctrlKey || e.metaKey || e.shiftKey || e.button)){" in clic
+    assert "e.preventDefault(); ouvrirPageDuPanneau(a); return;" in clic
+    ouvrir = page.split("function ouvrirPageDuPanneau(a){")[1].split("\n}")[0]
+    assert "history.pushState(null, '', a.lien);" in ouvrir and "routerDepuisAdresse();" in ouvrir
+    assert "if(quoi==='ouvrir' && pageDuPanneau(a)){ ouvrirPageDuPanneau(a); return; }" in page
 
 
 def test_la_tuile_messages_compte_les_non_lus(boite, monkeypatch):

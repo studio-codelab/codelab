@@ -403,6 +403,88 @@ if [ -n "$VSCODE_EXTENSIONS" ]; then
     ( while :; do installer_les_extensions || true; sleep 60; done ) &
 fi
 
+# ------------------ VS Code plus leger, et la memoire guettee ------------------
+#
+# Vecu : « VSCode plante sans arret, je ne peux pas utiliser claude code
+# correctement !!! ». Le serveur VS Code, son hote d'extensions, les serveurs
+# de langage et les agents tiennent sous le plafond du conteneur (mem_limit,
+# 1280 Mo) ; Claude Code seul en prend environ 470 (mesure : VmRSS du
+# processus « claude »). Au plafond, le noyau tue un processus -- souvent
+# l'hote d'extensions ou l'agent -- et VS Code se contente de redemarrer.
+#
+# 1. LES REGLAGES DE LA MACHINE (data/Machine/settings.json du serveur VS
+#    Code : ils valent pour tout dossier ouvert sur ce poste). Seulement les
+#    cles ABSENTES : un reglage que l'utilisateur a pose n'est jamais change,
+#    et un fichier a commentaires (JSONC) n'est pas touche.
+#    - files.watcherExclude : les dossiers que personne n'edite a la main ne
+#      sont plus surveilles. Surtout .claude-code et .codex, sous /workspace :
+#      les agents y ecrivent leurs conversations a chaque message, et chaque
+#      ecriture reveillait la surveillance des fichiers et l'hote
+#      d'extensions. Et node_modules, les environnements Python, vendor ;
+#    - search.exclude : les memes, pour que « Rechercher » ne parcoure pas des
+#      megaoctets de conversations ;
+#    - typescript.tsserver.maxTsServerMemory : 768 Mo au lieu de 3 072. Au-dela
+#      VS Code relance le seul serveur TypeScript ; sans borne, il pouvait
+#      grossir jusqu'au plafond du conteneur et faire tuer autre chose.
+#    Ecrit sous le compte des sessions (runuser), en 0600 comme le fait
+#    « codelab vscode-bases » : ce fichier porte aussi les comptes des bases.
+# 2. LE GUETTEUR (« codelab memory --guetter », sous le compte des sessions :
+#    il ne fait que lire /sys et /proc) : chaque processus tue faute de
+#    memoire s'ecrit dans « docker logs codelab-dev », avec les plus gros
+#    consommateurs, et dans /workspace/.codelab/poste-memoire.json, que lit le
+#    diagnostic du panneau.
+# ESSAYE ET ECARTE : remonter mem_limit. Il est borne au tiers de la machine
+# visee (docker-compose.yml, et un test) pour que le panneau reste joignable
+# quand le poste s'emballe ; sur une machine plus grande, INCIDENTS.md dit
+# comment le remonter.
+regler_vscode_pour_la_memoire() {
+    runuser -u "$SSH_USER" -- python3 - "$VSCODE_SERVER_DIR/data/Machine/settings.json" <<'PYVSCODE'
+import json, os, sys
+chemin = sys.argv[1]
+LOURDS = ["**/.claude-code/**", "**/.codex/**", "**/node_modules/**", "**/.venv/**",
+          "**/.dagster-venv/**", "**/vendor/**", "**/__pycache__/**"]
+VOULUS = {
+    # Les valeurs par defaut de VS Code d'abord : poser la cle ne doit pas les
+    # perdre, quelle que soit la facon dont la version fusionne les objets.
+    "files.watcherExclude": dict({"**/.git/objects/**": True, "**/.git/subtree-cache/**": True,
+                                  "**/.hg/store/**": True},
+                                 **{motif: True for motif in LOURDS}),
+    "search.exclude": dict({"**/node_modules": True, "**/bower_components": True,
+                            "**/*.code-search": True},
+                           **{motif: True for motif in LOURDS}),
+    "typescript.tsserver.maxTsServerMemory": 768,
+}
+reglages = {}
+if os.path.exists(chemin):
+    try:
+        with open(chemin, encoding="utf-8") as f:
+            texte = f.read()
+        reglages = json.loads(texte) if texte.strip() else {}
+    except (OSError, ValueError):
+        sys.exit(0)                     # JSONC ou illisible : laisse tel quel
+    if not isinstance(reglages, dict):
+        sys.exit(0)
+manquants = [cle for cle in VOULUS if cle not in reglages]
+if not manquants:
+    sys.exit(0)
+for cle in manquants:
+    reglages[cle] = VOULUS[cle]
+os.makedirs(os.path.dirname(chemin), exist_ok=True)
+tmp = chemin + ".codelab"
+with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as f:
+    json.dump(reglages, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+os.chmod(tmp, 0o600)
+os.replace(tmp, chemin)
+print("[codelab-dev] VS Code : " + ", ".join(manquants) + " regle(s) pour la memoire.")
+PYVSCODE
+}
+regler_vscode_pour_la_memoire || true
+
+runuser -u "$SSH_USER" -- env HOME="/home/$SSH_USER" \
+    CODELAB_MEMOIRE_ETAT="$WORKSPACE_DIR/.codelab/poste-memoire.json" \
+    codelab memory --guetter &
+
 
 
 # ------------------------------- git -------------------------------

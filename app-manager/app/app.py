@@ -37,7 +37,7 @@ STRUCTURE   Les imports, les chemins et constantes partages, puis quinze
               06 relais vers l'application Messages, journal des acces, miroir Postgres
               07 persistance, privileges, isolation, cycle de vie
               08 sauvegardes, surveillance externe, version, alertes
-              09 build, metriques, icones, categories, visibilite
+              09 build, mises a jour, metriques, icones, categories, visibilite
               10 routes de connexion, cles d'acces, invitations
               11 notifications Web Push, API, renommage
               12 pages, videos, le hub et l'application Messages
@@ -1097,6 +1097,9 @@ TITRES_PAR_DEFAUT = {DAGSTER_NOM: "Dagster", DIAGNOSTIC_NOM: "Diagnostic",
 # caracteres sur deux lignes) : 40 au plus, verifie par les tests.
 DIAGNOSTIC_DESCRIPTION = "L'état de santé de CodeLab"
 MESSAGERIE_DESCRIPTION = "Les messages du hub, rangés en projets."
+# La tuile Messages d'un compte utilisateur (tuile_messagerie_du_compte) :
+# meme limite, meme raison.
+MESSAGERIE_DESCRIPTION_COMPTE = "Écrire à l'admin et suivre tes messages."
 
 
 def refus_action_protegee(nom, action):
@@ -1323,10 +1326,15 @@ def services_masques():
     Meme forme que services_du_hub() -- nom, titre, description -- et rien de
     plus : cette liste ne sert qu'a les reproposer dans les reglages. Elle est
     vide pour un compte qui n'est pas administrateur, comme l'autre : un
-    service qu'on ne peut pas voir n'est pas un service qu'on range.
+    service qu'on ne peut pas voir n'est pas un service qu'on range. Seule
+    sa tuile Messages (tuile_messagerie_du_compte) s'y range et s'y retrouve.
     """
     if not est_admin():
-        return []
+        if MESSAGERIE_NOM not in masquees_du_compte():
+            return []
+        return [{"name": MESSAGERIE_NOM, "titre": TITRES_PAR_DEFAUT[MESSAGERIE_NOM],
+                 "description": MESSAGERIE_DESCRIPTION_COMPTE,
+                 "lien": PAGE_MESSAGES_DU_COMPTE}]
     masquees = masquees_du_compte()
     return [{"name": nom, "titre": TITRES_PAR_DEFAUT[nom],
              "description": description, "externe": True}
@@ -1343,10 +1351,15 @@ def services_du_hub():
     cette machine. Le proxy le refuse deja a un compte utilisateur (voir
     /api/auth-check) -- lui montrer une tuile qui le renverrait a la page de
     connexion serait promettre une porte qui ne s'ouvre pas.
+
+    Un compte utilisateur n'y trouve que sa tuile Messages
+    (tuile_messagerie_du_compte), sauf s'il l'a rangee.
     """
     services = []
     if not est_admin():
-        return services
+        if MESSAGERIE_NOM in masquees_du_compte():
+            return services
+        return [tuile_messagerie_du_compte()]
     # RANGE EST RANGE, meme pour un service. Dagster occupait une tuile que
     # rien ne permettait de retirer : sur une installation ou l'on n'ouvre
     # jamais l'orchestrateur, c'etait la seule tuile impossible a ecarter de
@@ -1418,6 +1431,52 @@ def _tuile_service(nom, description, adresse, debout, port):
         "build_command": "", "max_memory_mb": None, "alertes": [],
         "cpu_percent": 0.0, "memory_mb": 0.0,
         "presentation": None, "presentation_masquee": False, "presentation_fichier": "",
+        # Le panneau ne le lance pas : pas de version en service, rien a
+        # mettre a jour (voir « les mises a jour »).
+        "mise_a_jour": None, "version_en_service": "", "maj_auto": False, "derniere_maj": None,
+    }
+
+
+# LA TUILE MESSAGES D'UN COMPTE UTILISATEUR. Vecu : « Creer une application
+# message plutot qu'un onglet pour les utilisateurs ». Un compte ecrivait a
+# l'administrateur dans une rubrique du panneau, ouverte par une entree du
+# menu (la barre du bas au telephone) : la seule chose de son espace qui ne
+# soit pas une tuile du hub. Elle en devient une, qu'on range, deplace,
+# masque et ouvre comme les autres ; le menu disparait avec elle.
+#
+# POURQUOI une tuile du PANNEAU, et pas l'application Messages : celle-ci
+#   montre les messages de TOUS les comptes. Elle reste reservee a
+#   l'administrateur, le proxy la refuse toujours a un compte. La tuile ouvre
+#   la page /messages du panneau, qui ne relaie a l'application que les
+#   messages de CE compte (routes /compte/, au nom de la session).
+# REGLE : 12 de SECURITE.md -- peut_voir(MESSAGERIE_NOM) reste faux pour un
+#   compte, rien n'est ouvert par le proxy.
+# DEPEND DE : page_messagerie (/messages) et le relais du hub (12) ;
+#   lienOuverture dans panneau.js, qui suit le champ « lien » ; _api_icon,
+#   qui donne a cette tuile l'icone de Messages ; api_masquer, qui la range.
+# ECARTE : ouvrir l'application Messages aux comptes, avec une vue « mes
+#   messages » -- une exception a la regle 12, et le relais du panneau (le
+#   droit d'ecrire sur une application, le delai d'une minute) a refaire
+#   dans l'application. Propose et ecarte avec l'utilisateur.
+PAGE_MESSAGES_DU_COMPTE = "/messages"
+
+
+def tuile_messagerie_du_compte():
+    """La tuile Messages du hub d'un compte utilisateur.
+
+    Les cles d'une tuile d'application d'un compte, et pas une de plus :
+    aucun etat (regle 12 bis), aucun chemin. « lien » remplace l'adresse de
+    l'application : la page du panneau, sur l'origine du panneau.
+    """
+    return {
+        "name": MESSAGERIE_NOM,
+        "titre": TITRES_PAR_DEFAUT[MESSAGERIE_NOM],
+        "description": MESSAGERIE_DESCRIPTION_COMPTE,
+        "categorie": CATEGORIE_CODELAB,
+        "visibility": VISIBILITE_PRIVEE,
+        "lien": PAGE_MESSAGES_DU_COMPTE,
+        "nouvelle_version": False, "nouvelle": False, "ouverte_le": None,
+        "presentation": None,
     }
 
 
@@ -4744,21 +4803,24 @@ def _ecrire_processus(d):
     with stockage.transaction(DB_FILE) as cx:
         cx.execute("DELETE FROM processus")
         for nom, p in (d or {}).items():
-            cx.execute("INSERT INTO processus (nom, pid, depuis) VALUES (?, ?, ?)",
-                       (nom, int(p.get("pid") or 0), p.get("depuis")))
+            cx.execute("INSERT INTO processus (nom, pid, depuis, commit_) VALUES (?, ?, ?, ?)",
+                       (nom, int(p.get("pid") or 0), p.get("depuis"), p.get("commit") or ""))
 
 
 def lire_processus():
+    """{nom: {pid, depuis, commit}} -- commit : la version mise en service
+    par ce lancement (voir « les mises a jour »), '' si inconnue."""
     try:
-        lignes = stockage.lire(DB_FILE, "SELECT nom, pid, depuis FROM processus")
+        lignes = stockage.lire(DB_FILE, "SELECT nom, pid, depuis, commit_ FROM processus")
     except Exception:                                             # noqa: BLE001
         return {}
-    return {l["nom"]: {"pid": l["pid"], "depuis": l["depuis"]} for l in lignes}
+    return {l["nom"]: {"pid": l["pid"], "depuis": l["depuis"], "commit": l["commit_"]}
+            for l in lignes}
 
 
-def _noter_processus(nom, pid):
+def _noter_processus(nom, pid, commit=""):
     d = lire_processus()
-    d[nom] = {"pid": int(pid), "depuis": int(time.time())}
+    d[nom] = {"pid": int(pid), "depuis": int(time.time()), "commit": commit or ""}
     _ecrire_processus(d)
 
 
@@ -4810,13 +4872,23 @@ def adopter_processus_survivants():
     application deja en vie, et la nouvelle mourrait sur un port occupe.
     """
     repris, oublies = [], []
-    for nom, info in lire_processus().items():
+    notes = lire_processus()
+    sans_version = False
+    for nom, info in notes.items():
         pid = (info or {}).get("pid")
         if pid and _processus_est_le_notre(pid, nom) and nom in load():
             procs[nom] = ProcessusAdopte(pid, nom)
             repris.append(f"{nom} (pid {pid})")
+            # Lancee par un panneau d'avant la version en service (migration
+            # 10) : on la tient pour a jour plutot que d'annoncer, a tort,
+            # une mise a jour au premier affichage.
+            if not info.get("commit"):
+                info["commit"] = commit_du_projet(load()[nom].get("path")) or ""
+                sans_version = True
         else:
             oublies.append(nom)
+    if sans_version:
+        _ecrire_processus({n: i for n, i in notes.items() if n not in oublies})
     for nom in oublies:
         _oublier_processus(nom)
     if repris:
@@ -4938,7 +5010,7 @@ def start(name, attendre=True):
             apps[name]["enabled"] = False
             save(apps)
         return f"Lancement impossible : {e}"
-    _noter_processus(name, procs[name].pid)
+    _noter_processus(name, procs[name].pid, commit_a_mettre_en_service(name, a))
     apps[name]["enabled"] = True
     save(apps)
 
@@ -5100,7 +5172,7 @@ def port_occupe_par(port, sauf=None):
         # d'avoir pu le relire. On peut le reprendre sans le tuer.
         if _processus_est_le_notre(pid, sauf):
             procs[sauf] = ProcessusAdopte(pid, sauf)
-            _noter_processus(sauf, pid)
+            _noter_processus(sauf, pid, commit_du_projet((load().get(sauf) or {}).get("path")))
             apps = load()
             if sauf in apps:
                 apps[sauf]["enabled"] = True
@@ -5567,6 +5639,12 @@ def start_monitor_thread():
                 dagster_tick()
             except Exception as e:
                 print(f"[app-manager] erreur dans la surveillance de Dagster : {e}", flush=True)
+            # Les mises a jour automatiques, apres la sonde : une application
+            # tout juste relancee n'a rien a mettre a jour.
+            try:
+                maj_auto_tick()
+            except Exception as e:
+                print(f"[app-manager] erreur dans les mises a jour automatiques : {e}", flush=True)
             try:
                 mailpit_tick()
             except Exception as e:
@@ -6667,8 +6745,8 @@ def alerte_tick():
 # ===========================================================================
 # 09-applications : APPLICATIONS
 # ===========================================================================
-# ROLE        le build, les metriques, la detection de commande, icones et logos, categories, adresse publique, administration sur le reseau local, visibilite.
-# STRUCTURE   build, metriques et pouls du serveur, auto-detection, icones, logo, categories, adresse publique, reseau local, visibilite.
+# ROLE        le build, les mises a jour, les metriques, la detection de commande, icones et logos, categories, adresse publique, administration sur le reseau local, visibilite.
+# STRUCTURE   build, mises a jour (version en service, mise a jour automatique), metriques et pouls du serveur, auto-detection, icones, logo, categories, adresse publique, reseau local, visibilite.
 
 # ------------------------------- build ---------------------------------
 
@@ -6690,7 +6768,13 @@ def build_en_cours(name):
 def run_build(name):
     _builds_en_cours.add(name)
     try:
-        return _construire(name)
+        # Le commit lu AVANT le build : c'est le code que le build a pris. Un
+        # commit arrive pendant qu'il tourne reste une mise a jour a faire.
+        commit = commit_du_projet((load().get(name) or {}).get("path"))
+        ok, msg = _construire(name)
+        if ok and commit:
+            _commits_construits[name] = commit
+        return ok, msg
     finally:
         _builds_en_cours.discard(name)
 
@@ -6728,6 +6812,213 @@ def _construire(name):
             out.write(b"\n[build] delai depasse (10 min), arrete.\n")
             ok, msg = False, "Le build a depasse le delai de 10 minutes."
     return ok, msg
+
+
+# ---------------------------- les mises a jour ----------------------------
+#
+# Vecu : « Identifier lorsqu'une app peut etre mise a jour, et proposer a
+# l'administration de la mettre a jour, ou configurer la mise a jour
+# automatique ». Une application tourne sur le code de /workspace/<projet>,
+# que l'agent modifie et commite depuis le poste (VS Code, Claude Code,
+# Codex). Le processus, lui, garde le code qu'il a charge -- et le build sa
+# sortie : rien ne disait qu'il etait en retard.
+#
+# LA VERSION EN SERVICE est le commit que le lancement a mis en service :
+# celui du dernier build reussi quand l'application en a un (c'est sa sortie
+# qui tourne), sinon celui du depot au lancement. Notee a cote du pid (table
+# processus, migration 10) : elle survit au redemarrage du panneau, comme le
+# processus. Un nouveau commit dans le depot, application en marche : une
+# mise a jour attend.
+# METTRE A JOUR, c'est build (s'il y en a un) puis redemarrage. Le build
+# tourne pendant que l'application sert encore : un build qui echoue la
+# laisse dans sa version d'avant, et le dit.
+# LA MISE A JOUR AUTOMATIQUE (une case de la fiche, par application) : le
+# moniteur la fait quand un commit attend depuis DELAI_MAJ_AUTO sans qu'un
+# autre arrive -- un agent commite souvent par rafales, et chaque commit ne
+# doit pas redemarrer l'application. Un echec n'est pas retente sur le meme
+# commit.
+# Les applications par defaut (Diagnostic, Messages) se mettent a jour avec
+# CodeLab : rien ici ne les concerne.
+# ECARTE : git (git log, git rev-list) pour lire les commits. Le depot est
+# ecrit par le projet ; git y lirait sa configuration (core.fsmonitor et
+# autres commandes) en root, et refuse de toute facon un depot d'un autre
+# proprietaire. Les objets sont lus a la main, sans rien executer.
+DELAI_MAJ_AUTO = 120            # secondes sans nouveau commit avant la mise a jour automatique
+COMMIT_OBJET_MAX = 64 * 1024    # un objet commit plus gros n'est pas lu
+COMMITS_COMPTES_MAX = 50        # au-dela, « plus de 50 commits »
+_commits_construits = {}        # nom -> commit du dernier build reussi (ce panneau)
+_maj_vues = {}                  # nom -> (commit du depot, depuis quand il attend)
+_maj_echouees = {}              # nom -> commit dont la mise a jour automatique a echoue
+_maj_details = {}               # (dossier, commit du depot, en service) -> (message, ecart)
+_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
+
+
+def commit_a_mettre_en_service(name, a):
+    """Le commit qu'un lancement met en service (voir plus haut)."""
+    if (a.get("build_command") or "").strip() and name in _commits_construits:
+        return _commits_construits[name]
+    return commit_du_projet(a.get("path")) or ""
+
+
+def _objet_commit(chemin, commit):
+    """L'objet commit, lu dans .git/objects (objet isole), ou None.
+
+    Un objet range dans un pack (apres « git gc ») n'est pas decompresse :
+    le message et le compte manquent alors, la mise a jour reste proposee.
+    Lu comme lire_icone : sans suivre de lien au dernier maillon, un
+    fichier ordinaire seulement, taille bornee avant et apres
+    decompression.
+    """
+    if not chemin or not _COMMIT_RE.fullmatch(commit or ""):
+        return None
+    fichier = os.path.join(chemin, ".git", "objects", commit[:2], commit[2:])
+    try:
+        fd = os.open(fichier, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        infos = os.fstat(fd)
+        if not stat_mod.S_ISREG(infos.st_mode) or infos.st_size > COMMIT_OBJET_MAX:
+            return None
+        with os.fdopen(os.dup(fd), "rb") as f:
+            brut = f.read(COMMIT_OBJET_MAX)
+        donnees = zlib.decompressobj().decompress(brut, COMMIT_OBJET_MAX)
+    except (OSError, zlib.error):
+        return None
+    finally:
+        os.close(fd)
+    entete, _, corps = donnees.partition(b"\0")
+    if not entete.startswith(b"commit "):
+        return None
+    return corps.decode("utf-8", "replace")
+
+
+def message_du_commit(chemin, commit):
+    """La premiere ligne du message d'un commit, ou ""."""
+    corps = _objet_commit(chemin, commit)
+    if corps is None:
+        return ""
+    message = corps.partition("\n\n")[2].strip()
+    return message.splitlines()[0][:120] if message else ""
+
+
+def commits_entre(chemin, nouveau, ancien):
+    """Combien de commits separent l'ancien du nouveau, en suivant le
+    premier parent ; None si l'ancien n'est pas sur ce chemin (historique
+    reecrit, objets en pack) ou au-dela de COMMITS_COMPTES_MAX."""
+    commit, n = nouveau, 0
+    while commit and n <= COMMITS_COMPTES_MAX:
+        if commit == ancien:
+            return n
+        corps = _objet_commit(chemin, commit)
+        if corps is None:
+            return None
+        parents = [l[7:47] for l in corps.split("\n\n")[0].splitlines()
+                   if l.startswith("parent ")]
+        commit, n = (parents[0] if parents else None), n + 1
+    return None
+
+
+def mise_a_jour_de(nom, a, notes=None):
+    """Ce qui attend d'etre mis en service, ou None.
+
+    {commit, en_service, message, commits, attend_depuis} : le commit du
+    depot (7 caracteres), celui qui tourne, la premiere ligne de son
+    message, le nombre de commits d'ecart (None : inconnu) et depuis quand
+    ce commit-la attend.
+    """
+    if est_app_par_defaut(nom) or est_archivee(a) or not is_running(nom):
+        _maj_vues.pop(nom, None)
+        return None
+    notes = lire_processus() if notes is None else notes
+    en_service = (notes.get(nom) or {}).get("commit") or ""
+    depot = commit_du_projet(a.get("path")) or ""
+    if not en_service or not depot or depot == en_service:
+        _maj_vues.pop(nom, None)
+        return None
+    vue = _maj_vues.get(nom)
+    if not vue or vue[0] != depot:
+        vue = _maj_vues[nom] = (depot, int(time.time()))
+    # Le message et l'ecart se lisent une fois par paire de commits : la
+    # liste des applications se redemande toutes les quelques secondes.
+    cle = (a.get("path"), depot, en_service)
+    if cle not in _maj_details:
+        if len(_maj_details) > 200:
+            _maj_details.clear()
+        _maj_details[cle] = (message_du_commit(a.get("path"), depot),
+                             commits_entre(a.get("path"), depot, en_service))
+    message, commits = _maj_details[cle]
+    return {"commit": depot[:7], "en_service": en_service[:7], "message": message,
+            "commits": commits, "attend_depuis": vue[1]}
+
+
+def mettre_a_jour(nom, auto=False):
+    """Met en service le code du depot : build, puis redemarrage. Rend None
+    si tout s'est bien passe, sinon pourquoi -- et le note dans la fiche
+    (derniere_maj) et dans le journal de l'application."""
+    a = load().get(nom)
+    if not a:
+        return "Application inconnue."
+    cible = commit_du_projet(a.get("path")) or ""
+    erreur = None
+    if (a.get("build_command") or "").strip():
+        ok, msg = run_build(nom)
+        if not ok:
+            erreur = (msg or "Le build a échoué.") + (
+                " L'application garde sa version d'avant." if is_running(nom) else "")
+    if not erreur:
+        erreur = restart_app(nom)
+    if not erreur:
+        marquer_nouvelle_version(nom)
+        _maj_echouees.pop(nom, None)
+    elif auto:
+        _maj_echouees[nom] = cible
+    apps = load()
+    if nom in apps:
+        apps[nom]["derniere_maj"] = {"ts": int(time.time()), "commit": cible[:7], "ok": not erreur,
+                                     "auto": bool(auto), "erreur": (erreur or "")[:300]}
+        save(apps)
+    geste = "Mise à jour automatique" if auto else "Mise à jour"
+    journal_du_service(nom, f"{geste} vers {cible[:7] or '?'} : "
+                            + ("réussie." if not erreur else f"échec -- {erreur}"))
+    return erreur
+
+
+def maj_auto_tick():
+    """Le tour du moniteur : met a jour, une par une et en arriere-plan, les
+    applications en mise a jour automatique dont un commit attend depuis
+    DELAI_MAJ_AUTO. Jamais deux fois le meme commit en echec, jamais
+    pendant une autre action sur la meme application."""
+    apps = load()
+    notes = None
+    maintenant = time.time()
+    for nom, a in apps.items():
+        if not a.get("maj_auto"):
+            continue
+        notes = lire_processus() if notes is None else notes
+        m = mise_a_jour_de(nom, a, notes)
+        if not m or maintenant - m["attend_depuis"] < DELAI_MAJ_AUTO:
+            continue
+        depot = _maj_vues.get(nom, ("",))[0]
+        if _maj_echouees.get(nom) == depot:
+            continue
+        with _actions_verrou:
+            verrou = _actions_en_cours.setdefault(nom, threading.Lock())
+        if not verrou.acquire(blocking=False):
+            continue                    # une action de la page est en cours
+
+        def _faire(nom=nom, verrou=verrou):
+            try:
+                erreur = mettre_a_jour(nom, auto=True)
+                if erreur:
+                    notifier_compte(NOM_ADMIN, f"{titre_de(nom, load().get(nom) or {})} : "
+                                               f"mise à jour impossible",
+                                    erreur[:180], url="/applications/" + urllib.parse.quote(nom))
+            except Exception as e:                                # noqa: BLE001
+                print(f"[app-manager] mise a jour automatique de {nom} : {e}", flush=True)
+            finally:
+                verrou.release()
+        threading.Thread(target=_faire, daemon=True, name="maj-" + nom).start()
 
 
 # ------------------------- historique de metriques ----------------------------
@@ -10980,6 +11271,7 @@ def api_apps():
     out, archivees = [], []
     releve = _ports_ecoutes()           # un seul pour toute la liste
     par_app = reglage("alertes_par_app", {}) or {}
+    notes = lire_processus()            # les versions en service, une lecture
     for name in sorted(apps):
         a = apps[name]
         run = is_running(name)
@@ -11026,6 +11318,12 @@ def api_apps():
             "archivee_le": a.get("archivee_le") if est_archivee(a) else None,
             "effacement_le": suppression_de_l_archive(a),
             "configuration_effacee": bool(a.get("configuration_effacee_le")),
+            # Les mises a jour (voir « les mises a jour ») : ce qui attend
+            # d'etre mis en service, la case automatique, la derniere faite.
+            "mise_a_jour": mise_a_jour_de(name, a, notes),
+            "version_en_service": ((notes.get(name) or {}).get("commit") or "")[:7] if run else "",
+            "maj_auto": bool(a.get("maj_auto")),
+            "derniere_maj": a.get("derniere_maj") if isinstance(a.get("derniere_maj"), dict) else None,
             **stats,
         })
     # Dagster figure ici comme les autres. Il n'est pas declare dans
@@ -11382,6 +11680,48 @@ def api_restart(n):
     return jsonify({"ok": True})
 
 
+@flask_app.post("/api/apps/<n>/mettre-a-jour")
+@require_admin
+@une_action_a_la_fois
+def api_mettre_a_jour(n):
+    """Build (s'il y en a un), puis redemarrage : le code du depot en
+    service (voir « les mises a jour »). 409 si le build ou le redemarrage
+    echoue -- l'application garde alors sa version d'avant."""
+    refus = refus_action_protegee(n, "mise à jour")
+    if refus:
+        return jsonify({"error": refus}), 403
+    a = load().get(n)
+    if not a or est_archivee(a):
+        return jsonify({"error": "Application inconnue."}), 404
+    erreur = mettre_a_jour(n)
+    if erreur:
+        return jsonify({"error": erreur}), 409
+    return jsonify({"ok": True})
+
+
+@flask_app.put("/api/apps/<n>/maj-auto")
+@require_admin
+def api_maj_auto(n):
+    """{actif} : la mise a jour automatique de cette application."""
+    refus = refus_action_protegee(n, "mise à jour automatique")
+    if refus:
+        return jsonify({"error": refus}), 403
+    actif = (request.get_json(force=True, silent=True) or {}).get("actif")
+    if not isinstance(actif, bool):
+        return jsonify({"error": "« actif » : vrai ou faux."}), 400
+    apps = load()
+    if n not in apps or est_archivee(apps[n]):
+        return jsonify({"error": "Application inconnue."}), 404
+    if actif:
+        apps[n]["maj_auto"] = True
+    else:
+        apps[n].pop("maj_auto", None)
+    save(apps)
+    # Une case qu'on rallume retente aussi un commit qui avait echoue.
+    _maj_echouees.pop(n, None)
+    return jsonify({"ok": True, "maj_auto": actif})
+
+
 @flask_app.post("/api/build/<n>")
 @require_admin
 @une_action_a_la_fois
@@ -11508,7 +11848,8 @@ DELAI_ARCHIVE = 30 * 86400
 
 # Ce que l'effacement retire de la fiche. Tout le reste est garde.
 CONFIGURATION_EFFACEE = ("command", "build_command", "port", "visibility", "max_memory_mb",
-                         "presentation_masquee", "presentation_fichier", "dernier_echec")
+                         "presentation_masquee", "presentation_fichier", "dernier_echec",
+                         "maj_auto", "derniere_maj")
 
 
 def est_archivee(a):
@@ -12623,7 +12964,10 @@ def _api_icon(n):
     # Accessible a un compte utilisateur, pour que son espace affiche les
     # icones -- mais seulement des projets qu'il peut ouvrir : la liste des
     # icones est une liste des projets existants.
-    if not peut_voir(n):
+    # Sauf Messages : la tuile Messages d'un compte (tuile_messagerie_du_compte)
+    # porte l'icone de l'application. Elle existe sur toute installation, son
+    # icone ne revele aucun projet, et la page reste fermee (regle 12).
+    if not peut_voir(n) and n != MESSAGERIE_NOM:
         return Response(default_icon_svg(n), mimetype="image/svg+xml")
     apps = load()
     a = apps.get(n)
@@ -13318,6 +13662,7 @@ def api_mes_apps():
     versions = versions_des_apps(toutes)
     ouvertes = ouvertures_du_compte()
     admin = est_admin()
+    notes = lire_processus() if admin else {}
     for nom, a in sorted(toutes.items()):
         # Une application par defaut ne figure pas dans le hub d'un compte
         # utilisateur. Le proxy la lui refuse deja ; lui montrer une tuile qui
@@ -13360,6 +13705,9 @@ def api_mes_apps():
         if admin:
             tuile["running"] = is_running(nom)
             tuile["listening"] = _listening.get(nom)
+            # Une nouvelle version attend dans le depot (voir « les mises a
+            # jour ») : le resume du hub de l'administrateur la compte.
+            tuile["mise_a_jour"] = mise_a_jour_de(nom, a, notes) is not None
         # La tuile de Messages dit ce qui attend, comme le compteur d'une
         # boite de reception.
         if nom == MESSAGERIE_NOM:
@@ -13941,8 +14289,14 @@ def api_masquer(n):
     propre hub. peut_voir() garde le dernier mot -- pour une application par
     defaut, il exige l'administrateur -- donc ouvrir ce nom-ci n'ouvre rien
     de plus a un compte utilisateur.
+
+    LA TUILE MESSAGES D'UN COMPTE (tuile_messagerie_du_compte) se range
+    aussi : elle est dans son hub. La ranger ne touche qu'a sa liste, et
+    peut_voir() garde son verdict sur l'application.
     """
-    if not (n in load() or n in SERVICES_MASQUABLES) or not peut_voir(n):
+    sa_messagerie = n == MESSAGERIE_NOM and not est_admin()
+    if not sa_messagerie and (not (n in load() or n in SERVICES_MASQUABLES)
+                              or not peut_voir(n)):
         return jsonify({"error": "Application inconnue."}), 404
     qui = utilisateur_courant() or NOM_ADMIN
     d = lire_masquees()

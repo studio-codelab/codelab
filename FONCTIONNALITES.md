@@ -30,10 +30,13 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 | Applications | `/applications`, `/applications/<nom>[/<onglet>]` | admin | liste, puis fiche d'une application |
 | Utilisateurs | `/utilisateurs` | admin | comptes, invitations, journal des accès, carte d'activité |
 | Messages | `/messages` (redirige vers l'application) ; l'application sur `:9002/messages/`, vues `?vue=planning`, `?vue=feuille`, `?vue=projet&cle=<id>` | admin | application à part, ouverte depuis sa tuile du hub (voir § 5) |
+| Messages (compte) | `/messages` | utilisateur | écrire à l'administrateur et suivre ses messages, ouverte depuis la tuile *Messages* de son hub |
 | Paramètres | `/parametres/<onglet>` | tous | onglets selon le rôle (voir plus bas) |
 
 - **Une seule application pour tous les rôles.** Le rôle décide de ce que le menu propose. Chaque
-  rubrique a son adresse : recharger y ramène, « Précédent » y revient.
+  rubrique a son adresse : recharger y ramène, « Précédent » y revient. Un compte utilisateur n'a
+  pas de menu : son hub porte ses applications et sa tuile *Messages*, le logo y ramène, et le menu
+  du compte ouvre ses paramètres.
 - **Deux styles** (*Paramètres > Apparence*), retenus par navigateur. Le reste du panneau
   est le même : menu en pilule, barre du bas sur téléphone, réglages en fenêtre.
   - **Erreurs** : chaque message dit quoi faire ensuite. Une panne du serveur porte une
@@ -59,7 +62,9 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     - **Widgets** : *mêlés* aux applications, ou *en haut*, dans leur propre grille. Au téléphone,
       chaque taille a sa forme : *Petit* sur une demi-largeur, *Moyen* en bande basse sur toute la
       largeur, *Grand* deux fois plus haut ; un widget plus rempli grandit au lieu de couper son
-      texte ;
+      texte. « Dernière ouverte » et « Aperçu » gardent la forme de l'ordinateur : en *Moyen*, une
+      bande (l'aperçu à gauche, le nom à droite) ; en *Grand*, une carte haute (l'aperçu en grand,
+      le nom dessous) ;
     - **Couleurs** : un nuancier pour la couleur d'accent (Lagon, Océan, Forêt, Prune, Corail,
       Ardoise, Framboise, Ambre, Indigo, Olive), en clair comme en sombre, et **Personnalisée** :
       n'importe quelle teinte, dont le panneau calcule la version claire et la sombre, toujours
@@ -273,6 +278,19 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 - **Démarrer, arrêter, redémarrer.**
 - **Build** à la demande. Pendant un build, « Démarrer » est grisé (« Build en cours… ») et le serveur
   refuse le démarrage : l'application partirait sur des dépendances à moitié installées.
+- **Mises à jour** (administrateur) : le panneau note le commit que chaque lancement met en service
+  (celui du dernier build quand il y en a un). Quand le dépôt du projet en a un plus récent (l'agent
+  a commité depuis le poste), l'application est **à mettre à jour** :
+  - un badge « Mise à jour » dans la liste des applications, « N à mettre à jour » sous le bonjour du
+    hub, et le bouton **Mettre à jour** en tête de la fiche ;
+  - la carte *Mises à jour* de la fiche dit combien de commits attendent, le message du dernier, la
+    version en service, et la dernière mise à jour faite (réussie ou non, à la main ou seule) ;
+  - **Mettre à jour**, c'est le build (s'il y en a un) puis le redémarrage. Le build tourne pendant
+    que l'application sert encore : s'il échoue, elle garde sa version d'avant, et le dit ;
+  - **Mettre à jour automatiquement** (une case de la carte, par application) : le panneau le fait
+    seul, deux minutes après le dernier commit (un agent commite par rafales). Un échec n'est pas
+    retenté sur le même commit, et l'administrateur reçoit une notification ;
+  - les applications par défaut (Diagnostic, Messages) se mettent à jour avec CodeLab, pas ici.
 - **Port interne attribué** automatiquement (`9101`–`9140`), passé à l'application dans `$PORT`.
   C'est ce port que montre la colonne « Port » (au survol : « Port interne ») ; tous les visiteurs
   passent par le `9002`, qui le relaie. Pour Dagster et Mailpit, c'est leur port public (`3000`,
@@ -477,9 +495,9 @@ premier démarrage (voir [`workspace/messages/README.md`](workspace/messages/REA
 Si elle redémarre, le hub dit « Messages ne répond pas pour l'instant » et l'envoi se refait un instant
 plus tard.
 
-- **Écrire un message** (tout compte) : dans sa rubrique **Messages** (`/messages`, une entrée du menu, de la
-  barre du bas au téléphone ; ce n'est plus un onglet des paramètres), ou le widget « Écrire à
-  l'administrateur », en choisissant le sujet : **améliorer le hub**, **une idée de
+- **Écrire un message** (tout compte) : dans **Messages** (`/messages`), qui s'ouvre comme une
+  application depuis sa tuile du hub (son icône, le retour au hub en tête ; ni onglet des paramètres
+  ni entrée de menu), ou le widget « Écrire à l'administrateur », en choisissant le sujet : **améliorer le hub**, **une idée de
   nouveau projet**, ou **améliorer une application existante** (laquelle). Un message qui arrive
   s'annonce dans le coin du panneau de l'administrateur.
 - **Joindre des captures et des maquettes** (jusqu'à 6 par message, 10 Mo chacune) : images (PNG,
@@ -496,8 +514,12 @@ plus tard.
   l'étude, accepter, refuser, en faire des tâches ou un projet, les cocher) : rien de plus à remplir.
   - On y voit le projet, les tâches nées du message (titre et coche seulement), la date prévue s'il
     y en a une, et la date de réalisation.
-  - Un message qui a avancé depuis la dernière visite est mis en avant, et le menu *Messages* porte
-    leur nombre ; ouvrir la liste les marque vus.
+  - Un message qui a avancé depuis la dernière visite est mis en avant, et la tuile *Messages* du
+    hub porte leur nombre (ainsi que l'icône de l'application installée) ; ouvrir la liste les
+    marque vus.
+  - La tuile se range, se déplace et se masque comme une application (*Paramètres > Mon hub*
+    pour la remettre). Elle ouvre la page du panneau, jamais l'application Messages de
+    l'administrateur.
   - Le widget Bento « Mes messages » résume le tout sur le hub (dans la composition par défaut).
   - Un compte ne voit que ses propres messages.
 - **Boîte de réception** : à classer, tous, archivés ; filtre par sujet et recherche.
@@ -538,6 +560,14 @@ plus tard.
 - **Empreinte stable** : les clés hôte survivent aux mises à jour d'image.
 - **VS Code Remote-SSH** : le serveur VS Code et ses extensions sont conservés. D'autres
   extensions s'ajoutent dans le compose.
+- **VS Code allégé pour tenir avec les agents** : le poste règle d'office, sur sa machine, ce qui
+  n'a pas à être surveillé ni fouillé (les conversations de Claude Code et de Codex, `node_modules`,
+  les environnements Python, `vendor`) et borne le serveur TypeScript à 768 Mo. Un réglage déjà posé
+  n'est jamais changé.
+- **La mémoire du poste, surveillée** : chaque processus que le noyau tue faute de mémoire (VS Code
+  redémarre, l'agent s'arrête) s'inscrit dans `docker logs codelab-dev` avec les plus gros
+  consommateurs, et dans la sonde « mémoire du poste » du Diagnostic ; `codelab memory` en fait le
+  relevé à la demande.
 - **Les bases dans VS Code, sans rien créer** : SQLTools est installé d'office, et chaque base du
   serveur y apparaît déjà (groupe « CodeLab »), chacune avec son propre compte, pour n'importe quel
   projet ouvert ; une base créée par `codelab create` ou `codelab update` s'y ajoute aussitôt.
@@ -561,6 +591,7 @@ plus tard.
 | `codelab create <nom> [--sans-db]` | crée le projet complet : dossier, git, `.gitignore`, `README.md`, `AGENTS.md`, `CLAUDE.md`, les modules `codelab_auth` et `codelab_web`, et sa base de données |
 | `codelab update [projet] [--tous]` | met un projet existant à jour (manuel de l'agent, `CLAUDE.md`, modules, `.gitignore`, base) sans rien effacer ; `--tous` pour chaque projet, à lancer après une mise à jour de CodeLab |
 | `codelab video [projet]` | la vidéo de présentation, en un geste depuis le terminal de VS Code : pose au besoin un scénario (`video/scenario.mjs`, un tour automatique de l'application, rien à remplir), le joue dans Chromium, ajoute une voix off française et l'habille comme une pub (titre animé, application dans une fenêtre sur fond vivant, sous-titres, carton de fin, musique composée sur place) dans `video/presentation.mp4` |
+| `codelab memory` | quand VS Code ou un agent redémarre sans cesse : le plafond mémoire du poste, l'utilisé et le pic, les processus tués faute de mémoire (et quand), les plus gros consommateurs par famille (VS Code, Claude Code, Codex, serveurs de langage…) |
 | `codelab help [commande]` | toutes les commandes (aide en anglais) ; aussi dans *Paramètres > Aide*, pour l'administrateur |
 | `codelab db <nom>`, `codelab vscode-bases` | outils plus fins appelés par `create` et `update` : la base seule, les connexions SQLTools |
 
@@ -624,7 +655,9 @@ Détails : [`workspace/diagnostic/README.md`](workspace/diagnostic/README.md).
 - **Page d'état des lieux** (`:9002/diagnostic/`), en lecture seule :
   - les services se parlent-ils ?
   - ce qui doit être fermé l'est-il ?
-  - sauvegardes, disque, applications, exposition.
+  - sauvegardes, disque, applications, exposition ;
+  - la mémoire du poste de développement : les processus tués faute de mémoire ces sept derniers
+    jours (VS Code et ses agents redémarrent), et les plus gros consommateurs.
 - **À la manière de CleanMyMac** : une colonne de rubriques (Services, Données, Sécurité,
   Applications, Ressources), chacune marquée d'un point de couleur selon son pire état, un grand
   anneau du nombre de sondes vertes et un bouton rond « Analyser » qui lance la vérification

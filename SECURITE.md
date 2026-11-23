@@ -187,8 +187,16 @@ Sans lui, les réglages chiffrés deviennent illisibles.
   Le panneau le pose sur ce qu'il relaie. Il ne protège pas d'un script de la même origine (voir
   plus bas). Le panneau garde la vérification des droits (sur quelle application un compte peut
   écrire), le délai entre deux messages et les envois (mail, notifications).
+  Un compte utilisateur a une tuile *Messages* dans son hub : elle ouvre la page `/messages` **du
+  panneau**, qui ne relaie que ses messages, jamais l'application (règle 12). Seule l'icône de
+  Messages lui est servie, pour cette tuile.
 - **Logos.** Seuls les PNG, JPEG et GIF sont acceptés (512 Ko au plus), reconnus à leur signature. Le
   SVG est refusé, parce qu'il peut porter du script.
+- **Mises à jour.** Pour savoir si une application est en retard sur son dépôt, le panneau lit les
+  commits dans `.git` à la main : il ne lance jamais `git` dans un projet (la configuration du dépôt,
+  écrite par le projet, lui ferait exécuter des commandes en root). Les objets se lisent sans suivre
+  de lien et avec une taille bornée. Mettre à jour, à la main ou automatiquement, est réservé à
+  l'administrateur et refusé pour les applications par défaut.
 
 ## Réseau et exposition
 

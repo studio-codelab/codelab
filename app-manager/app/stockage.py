@@ -351,6 +351,15 @@ MIGRATIONS = [
     ALTER TABLE appareils ADD COLUMN appareil TEXT NOT NULL DEFAULT '';
     CREATE INDEX appareils_appareil ON appareils(compte, appareil);
     """,
+    # --- version 10 : la version en service d'une application ---
+    # Vecu : « Identifier lorsqu'une app peut etre mise a jour ». Le commit
+    # du projet que le lancement a mis en service (celui du dernier build
+    # quand il y en a un), a cote du pid : il survit au redemarrage du
+    # panneau, comme le processus. Les lignes d'avant gardent '' (inconnu) ;
+    # adopter_processus_survivants les complete.
+    """
+    ALTER TABLE processus ADD COLUMN commit_ TEXT NOT NULL DEFAULT '';
+    """,
 ]
 
 VERSION = len(MIGRATIONS)
