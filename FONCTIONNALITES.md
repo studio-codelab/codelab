@@ -30,10 +30,13 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 | Applications | `/applications`, `/applications/<nom>[/<onglet>]` | admin | liste, puis fiche d'une application |
 | Utilisateurs | `/utilisateurs` | admin | comptes, invitations, journal des accès, carte d'activité |
 | Messages | `/messages` (redirige vers l'application) ; l'application sur `:9002/messages/`, vues `?vue=planning`, `?vue=feuille`, `?vue=projet&cle=<id>` | admin | application à part, ouverte depuis sa tuile du hub (voir § 5) |
+| Messages (compte) | `/messages` | utilisateur | écrire à l'administrateur et suivre ses messages, ouverte depuis la tuile *Messages* de son hub |
 | Paramètres | `/parametres/<onglet>` | tous | onglets selon le rôle (voir plus bas) |
 
 - **Une seule application pour tous les rôles.** Le rôle décide de ce que le menu propose. Chaque
-  rubrique a son adresse : recharger y ramène, « Précédent » y revient.
+  rubrique a son adresse : recharger y ramène, « Précédent » y revient. Un compte utilisateur n'a
+  pas de menu : son hub porte ses applications et sa tuile *Messages*, le logo y ramène, et le menu
+  du compte ouvre ses paramètres.
 - **Deux styles** (*Paramètres > Apparence*), retenus par navigateur. Le reste du panneau
   est le même : menu en pilule, barre du bas sur téléphone, réglages en fenêtre.
   - **Erreurs** : chaque message dit quoi faire ensuite. Une panne du serveur porte une
@@ -479,9 +482,9 @@ premier démarrage (voir [`workspace/messages/README.md`](workspace/messages/REA
 Si elle redémarre, le hub dit « Messages ne répond pas pour l'instant » et l'envoi se refait un instant
 plus tard.
 
-- **Écrire un message** (tout compte) : dans sa rubrique **Messages** (`/messages`, une entrée du menu, de la
-  barre du bas au téléphone ; ce n'est plus un onglet des paramètres), ou le widget « Écrire à
-  l'administrateur », en choisissant le sujet : **améliorer le hub**, **une idée de
+- **Écrire un message** (tout compte) : dans **Messages** (`/messages`), qui s'ouvre comme une
+  application depuis sa tuile du hub (son icône, le retour au hub en tête ; ni onglet des paramètres
+  ni entrée de menu), ou le widget « Écrire à l'administrateur », en choisissant le sujet : **améliorer le hub**, **une idée de
   nouveau projet**, ou **améliorer une application existante** (laquelle). Un message qui arrive
   s'annonce dans le coin du panneau de l'administrateur.
 - **Joindre des captures et des maquettes** (jusqu'à 6 par message, 10 Mo chacune) : images (PNG,
@@ -498,8 +501,12 @@ plus tard.
   l'étude, accepter, refuser, en faire des tâches ou un projet, les cocher) : rien de plus à remplir.
   - On y voit le projet, les tâches nées du message (titre et coche seulement), la date prévue s'il
     y en a une, et la date de réalisation.
-  - Un message qui a avancé depuis la dernière visite est mis en avant, et le menu *Messages* porte
-    leur nombre ; ouvrir la liste les marque vus.
+  - Un message qui a avancé depuis la dernière visite est mis en avant, et la tuile *Messages* du
+    hub porte leur nombre (ainsi que l'icône de l'application installée) ; ouvrir la liste les
+    marque vus.
+  - La tuile se range, se déplace et se masque comme une application (*Paramètres > Mon hub*
+    pour la remettre). Elle ouvre la page du panneau, jamais l'application Messages de
+    l'administrateur.
   - Le widget Bento « Mes messages » résume le tout sur le hub (dans la composition par défaut).
   - Un compte ne voit que ses propres messages.
 - **Boîte de réception** : à classer, tous, archivés ; filtre par sujet et recherche.

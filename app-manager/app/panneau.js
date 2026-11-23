@@ -75,7 +75,12 @@ const urlApplication = nom => APPS_MODELE.replace('{nom}', encodeURIComponent(no
    une page du panneau (/ouvrir.html, voir ouvrir_dans_le_panneau). */
 /* Le mode a ete lu une fois, en tete de page (mode.js) : on ne le redevine pas. */
 const enModeApp = window.CODELAB_MODE_APP === true;
-const lienOuverture = a => a.externe
+/* Une tuile qui est une page DU PANNEAU porte son adresse (« lien ») : la
+   tuile Messages d'un compte utilisateur (tuile_messagerie_du_compte, cote
+   serveur). Un chemin de ce panneau seulement, jamais une autre origine. */
+const pageDuPanneau = a => typeof a.lien === 'string' && /^\/[a-z]/.test(a.lien);
+const lienOuverture = a => pageDuPanneau(a) ? a.lien
+  : a.externe
   ? '/' + encodeURIComponent(a.name) + '/'
   : (enModeApp ? '/ouvrir.html?app=' + encodeURIComponent(a.name)
                : urlApplication(a.name));
@@ -1196,10 +1201,10 @@ function itemSuivi(m){
       `<li class="${t.faite?'faite':''}"><i>${t.faite?'✓':'•'}</i>${esc(t.titre)}</li>`).join('')}</ul>` : ''}
   </div>`;
 }
+/* Le compte des messages qui ont avance se lit sur la tuile Messages du hub
+   (pastille), que chargerSuivi repeint. */
 function peindreSuivi(){
   majPastilleIcone();
-  const b=$('side-count-suivi');
-  if(b){ b.textContent=mesNouveaux; b.style.display=mesNouveaux ? '' : 'none'; }
   if(!mesMessages) return;
   remplir($('suivi-liste'), mesMessages.length ? mesMessages.map(itemSuivi).join('')
     : '<p class="hint">Aucun message envoyé pour l’instant.</p>');
@@ -1211,7 +1216,7 @@ async function suiviConsulte(){
   if(!mesNouveaux) return;
   try{ await fetch('/api/mes-messages/vus',{method:'POST'}); }catch(e){ return; }
   mesNouveaux=0;
-  const b=$('side-count-suivi'); if(b) b.style.display='none';
+  majPastilleIcone();
   if(sectionCourante==='hub') peindreHub();
 }
 function widgetSuivi(taille){
@@ -1429,9 +1434,18 @@ function peindreHub(){
 /* Les messages a lire, que la tuile de l'application Messages porte (le
    serveur ne la remplit que pour l'administrateur). */
 const nonLuesMessages = () => (hubApps.find(a=>a.name==='messages')||{}).non_lues||0;
-/* Le nombre de messages non lus, sur la tuile « Messages ». */
-const pastille = a => a.non_lues
-  ? `<span class="hub-pastille" title="${a.non_lues} nouvelle${a.non_lues>1?'s':''} demande${a.non_lues>1?'s':''}">${a.non_lues}</span>` : '';
+/* Le nombre de messages non lus, sur la tuile « Messages ». Sur celle d'un
+   compte utilisateur (une page du panneau), les messages qui ont avance
+   depuis sa derniere visite (le suivi, mesNouveaux) : la pastille de
+   l'entree « Messages » du menu, partie avec le menu. */
+function pastille(a){
+  if(pageDuPanneau(a)){
+    const n=mesNouveaux;
+    return n ? `<span class="hub-pastille" title="${n} message${n>1?'s':''} avec du nouveau">${n}</span>` : '';
+  }
+  return a.non_lues
+    ? `<span class="hub-pastille" title="${a.non_lues} nouvelle${a.non_lues>1?'s':''} demande${a.non_lues>1?'s':''}">${a.non_lues}</span>` : '';
+}
 
 /* STYLE 4 : LA MOSAIQUE. Sur un ecran large, elle DEFILE A L'HORIZONTALE et
    jamais a la verticale : trois rangees qui tiennent dans la hauteur de la
@@ -1941,6 +1955,7 @@ function fermerMenuApp(rendreFocus){
 function actionMenuApp(quoi, nom){
   fermerMenuApp(false);
   const a=appDuHub(nom); if(!a) return;
+  if(quoi==='ouvrir' && pageDuPanneau(a)){ ouvrirPageDuPanneau(a); return; }
   if(quoi==='ouvrir'){
     if(hubApps.some(x=>x.name===nom))
       fetch('/api/mes-apps/'+encodeURIComponent(nom)+'/ouverte', {method:'POST', keepalive:true}).catch(()=>{});
@@ -2549,9 +2564,23 @@ $('hub-liste').addEventListener('click', e=>{
   const t = e.target.closest('[data-app]');
   /* Les trois points sont DANS la tuile : les ouvrir n'ouvre pas l'application. */
   if(!t || hubEdition || e.target.closest('.btn-menu-app')) return;
+  /* Une page du panneau (la tuile Messages d'un compte) s'ouvre sur place,
+     sans recharger la page -- comme une rubrique. Un clic qui demande un
+     nouvel onglet garde son lien. */
+  const a=appDuHub(t.dataset.app);
+  if(a && pageDuPanneau(a) && !(e.ctrlKey || e.metaKey || e.shiftKey || e.button)){
+    e.preventDefault(); ouvrirPageDuPanneau(a); return;
+  }
   if(hubApps.some(a=>a.name===t.dataset.app))
     fetch('/api/mes-apps/'+encodeURIComponent(t.dataset.app)+'/ouverte', {method:'POST', keepalive:true}).catch(()=>{});
 });
+/* Ouvrir une page du panneau depuis sa tuile : son adresse, puis la rubrique
+   qui y correspond, comme a l'arrivee sur cette adresse. « Precedent »
+   ramene au hub. */
+function ouvrirPageDuPanneau(a){
+  history.pushState(null, '', a.lien);
+  routerDepuisAdresse();
+}
 
 /* =========================================================================
    04-apercu : La vue d'ensemble, le chargement des donnees et les actions sur une application.

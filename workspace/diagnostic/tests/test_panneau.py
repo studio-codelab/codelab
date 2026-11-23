@@ -1139,9 +1139,15 @@ def test_le_mot_a_l_administrateur_a_sa_propre_rubrique():
     # du panneau, plus un onglet des parametres.
     assert '<button data-p="message"' not in page and 'id="param-message"' not in page
     assert '<div id="sec-message" class="section"' in page
-    entree = page.split('data-sec="message"')[1].split(">")[0]
-    assert 'data-agir="allerA" data-args=\'["message"]\'' in entree
+    # Vecu ensuite : « Creer une application message plutot qu'un onglet pour
+    # les utilisateurs ». La rubrique ne s'ouvre plus par une entree du menu
+    # mais par sa tuile du hub (voir test_un_compte_ouvre_ses_messages_depuis_
+    # une_tuile_du_hub), a la meme adresse, et ramene au hub.
+    assert 'data-sec="message"' not in page
     assert "message:'/messages'" in page
+    rubrique = page.split('<div id="sec-message" class="section"')[1].split("</h2>")[0]
+    assert 'data-agir="showSection" data-args=\'["hub"]\'' in rubrique
+    assert '<img src="/api/icon/messages" alt="">' in rubrique
 
     # Le formulaire est DANS cette rubrique, et plus dans le hub.
     hub = page.split('<div id="sec-hub"')[1].split('<!-- ==================== VUE')[0]
@@ -1920,8 +1926,14 @@ def test_les_parametres_s_ouvrent_depuis_le_menu_du_compte():
     assert 'id="acct-parametres" data-agir="allerA" data-args=\'["parametres"]\'' in page
     assert '#sec-parametres{display:grid' in page
     assert '.sidebar{top:auto;bottom:0' in page
-    # Un compte utilisateur garde ses entrees : le hub et ses messages.
-    assert 'class="side-item utilisateur-seul"' in page
+    # Un compte utilisateur n'a plus de menu : ses messages sont une tuile de
+    # son hub, et un menu d'une seule entree (« Hub ») ne mene nulle part. Ni
+    # pilule, ni barre du bas -- et pas de place gardee pour elle.
+    assert 'class="side-item utilisateur-seul"' not in page
+    assert ".compte-utilisateur #sidebar,.compte-utilisateur #btn-menu{display:none}" in page
+    assert ".compte-utilisateur #sidebar{display:flex}" not in page
+    tel = page.split("/* Telephone : le menu devient la barre du bas")[1].split("\n}\n")[0]
+    assert ".compte-utilisateur{--barre-bas:0px}" in tel
     assert "document.body.classList.add('compte-utilisateur')" in page
     login = _page_panneau("login.html")
     # Face ID / Touch ID n'est plus cache dans le style Design : en tete.
@@ -4178,10 +4190,14 @@ def test_une_application_par_defaut_est_reservee_a_l_administrateur(hub_dagster)
     noms = {a["name"] for a in d["apps"]} | {a["name"] for a in d.get("masquees", [])}
     assert not (noms & set(app.APPS_PAR_DEFAUT)), sorted(noms)
     # Dagster n'apparait pas : son interface execute du code sur la machine.
-    # Et rien d'autre n'apparait a sa place : le hub d'un compte utilisateur
-    # ne porte aucune tuile de service.
+    # Et aucune tuile de service n'apparait a sa place. La seule tuile en
+    # plus de ses projets est SA page Messages, une page du panneau (et non
+    # l'application) -- une porte qui s'ouvre.
     services = {x["name"] for x in d.get("services", [])}
-    assert services == set(), sorted(services)
+    assert services <= {app.MESSAGERIE_NOM}, sorted(services)
+    for tuile in d.get("services", []):
+        assert tuile["lien"] == "/messages" and not tuile.get("externe"), tuile
+        assert c.get(tuile["lien"]).status_code == 200
 
 
 
@@ -15150,8 +15166,12 @@ def test_l_utilisateur_suit_ses_messages(boite, deux_espaces):
     assert all(m["id"] != autre for m in panneau.get("/api/mes-messages").get_json()["messages"])
     assert "suivi" in {w["id"] for w in u.get("/api/hub/disposition").get_json()["catalogue"]}
     page = _page_panneau("dashboard.html")
-    for trace in ('id="suivi-liste"', "function widgetSuivi(", "/api/mes-messages/vus", 'id="side-count-suivi"'):
+    for trace in ('id="suivi-liste"', "function widgetSuivi(", "/api/mes-messages/vus"):
         assert trace in page, trace
+    # Ce qui a avance se compte sur la tuile Messages du hub (la pastille de
+    # l'entree du menu, partie avec le menu).
+    bloc = page.split("function pastille(a){")[1].split("\n}")[0]
+    assert "if(pageDuPanneau(a)){" in bloc and "const n=mesNouveaux;" in bloc
 
 
 def test_un_message_porte_des_captures_et_des_maquettes(boite, deux_espaces):
@@ -15480,6 +15500,77 @@ def test_l_application_messages_est_reservee_a_l_administrateur(boite, deux_espa
 def app_adresse_messages():
     with app.flask_app.test_request_context("/"):
         return app.adresse_application(app.MESSAGERIE_NOM)
+
+
+def test_un_compte_ouvre_ses_messages_depuis_une_tuile_du_hub(deux_espaces, tmp_path):
+    """Vecu : « Creer une application message plutot qu'un onglet pour les
+    utilisateurs ». Un compte ecrivait a l'administrateur dans une rubrique
+    ouverte par une entree du menu ; ses Messages sont maintenant une tuile
+    de son hub, rangee, masquee et ouverte comme les autres. Elle mene a la
+    page du panneau (/messages), jamais a l'application Messages : celle-ci
+    reste reservee a l'administrateur (regle 12)."""
+    c = deux_espaces
+    dossier = tmp_path / "messages"
+    dossier.mkdir()
+    (dossier / "icon.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"><title>bulle</title></svg>')
+    apps = app.load()
+    apps[app.MESSAGERIE_NOM] = {"path": str(dossier), "command": "python3 app.py", "port": 9120,
+                                "enabled": True, "visibility": "privee"}
+    app.save(apps)
+    _connecte(c, "marie", "mot-de-passe-long")
+    d = c.get("/api/mes-apps").get_json()
+    # Pas parmi ses applications : l'application Messages lui reste fermee.
+    assert app.MESSAGERIE_NOM not in {a["name"] for a in d["apps"]}
+    tuiles = [s for s in d["services"] if s["name"] == app.MESSAGERIE_NOM]
+    assert len(tuiles) == 1
+    tuile = tuiles[0]
+    assert tuile["lien"] == "/messages" and tuile["titre"] == "Messages"
+    # Aucun etat (regle 12 bis), aucune adresse d'application.
+    assert not {"running", "listening", "url", "path", "port"} & set(tuile)
+    assert len(app.MESSAGERIE_DESCRIPTION_COMPTE) <= 40
+    # La page qu'elle ouvre est la rubrique du compte, pas la boite.
+    r = c.get("/messages")
+    assert r.status_code == 200 and '<div id="sec-message" class="section"' in r.get_data(as_text=True)
+    # Son icone est celle de l'application Messages, pas l'initiale.
+    assert b"bulle" in c.get("/api/icon/messages").data
+    # Elle se range dans la disposition du hub...
+    r = c.put("/api/hub/disposition", json={"elements": [{"t": "a", "id": app.MESSAGERIE_NOM}]})
+    assert r.status_code == 200, r.data
+    # ... et se masque, puis revient, comme une application.
+    assert c.post("/api/mes-apps/messages/masquer").status_code == 200
+    d = c.get("/api/mes-apps").get_json()
+    assert not d["services"]
+    assert [s["name"] for s in d["services_masques"]] == [app.MESSAGERIE_NOM]
+    assert c.delete("/api/mes-apps/messages/masquer").status_code == 200
+    assert [s["name"] for s in c.get("/api/mes-apps").get_json()["services"]] == [app.MESSAGERIE_NOM]
+    # Rien de cela n'ouvre l'application : la regle 12 tient.
+    with app.flask_app.test_request_context("/"):
+        from flask import session
+        session["authed"], session["role"], session["utilisateur"] = True, "utilisateur", "marie"
+        assert not app.peut_voir(app.MESSAGERIE_NOM)
+    # Une autre application par defaut ne devient pas masquable pour autant.
+    assert c.post("/api/mes-apps/diagnostic/masquer").status_code == 404
+    # L'administrateur garde l'application Messages elle-meme, sans cette tuile.
+    admin = app.flask_app.test_client()
+    _admin(admin)
+    d = admin.get("/api/mes-apps").get_json()
+    assert not any(s.get("lien") for s in d["services"])
+    assert app.MESSAGERIE_NOM in {a["name"] for a in d["apps"]}
+
+
+def test_la_tuile_messages_ouvre_la_rubrique_sur_place():
+    """La tuile d'une page du panneau suit son « lien » (un chemin de ce
+    panneau, jamais une autre origine) et ouvre la rubrique sans recharger la
+    page ; la rubrique ramene au hub."""
+    page = _page_panneau("dashboard.html")
+    assert "const pageDuPanneau = a => typeof a.lien === 'string' && /^\\/[a-z]/.test(a.lien);" in page
+    assert "const lienOuverture = a => pageDuPanneau(a) ? a.lien" in page
+    clic = page.split("$('hub-liste').addEventListener('click', e=>{")[1].split("\n});")[0]
+    assert "if(a && pageDuPanneau(a) && !(e.ctrlKey || e.metaKey || e.shiftKey || e.button)){" in clic
+    assert "e.preventDefault(); ouvrirPageDuPanneau(a); return;" in clic
+    ouvrir = page.split("function ouvrirPageDuPanneau(a){")[1].split("\n}")[0]
+    assert "history.pushState(null, '', a.lien);" in ouvrir and "routerDepuisAdresse();" in ouvrir
+    assert "if(quoi==='ouvrir' && pageDuPanneau(a)){ ouvrirPageDuPanneau(a); return; }" in page
 
 
 def test_la_tuile_messages_compte_les_non_lus(boite, monkeypatch):

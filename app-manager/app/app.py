@@ -1097,6 +1097,9 @@ TITRES_PAR_DEFAUT = {DAGSTER_NOM: "Dagster", DIAGNOSTIC_NOM: "Diagnostic",
 # caracteres sur deux lignes) : 40 au plus, verifie par les tests.
 DIAGNOSTIC_DESCRIPTION = "L'état de santé de CodeLab"
 MESSAGERIE_DESCRIPTION = "Les messages du hub, rangés en projets."
+# La tuile Messages d'un compte utilisateur (tuile_messagerie_du_compte) :
+# meme limite, meme raison.
+MESSAGERIE_DESCRIPTION_COMPTE = "Écrire à l'admin et suivre tes messages."
 
 
 def refus_action_protegee(nom, action):
@@ -1323,10 +1326,15 @@ def services_masques():
     Meme forme que services_du_hub() -- nom, titre, description -- et rien de
     plus : cette liste ne sert qu'a les reproposer dans les reglages. Elle est
     vide pour un compte qui n'est pas administrateur, comme l'autre : un
-    service qu'on ne peut pas voir n'est pas un service qu'on range.
+    service qu'on ne peut pas voir n'est pas un service qu'on range. Seule
+    sa tuile Messages (tuile_messagerie_du_compte) s'y range et s'y retrouve.
     """
     if not est_admin():
-        return []
+        if MESSAGERIE_NOM not in masquees_du_compte():
+            return []
+        return [{"name": MESSAGERIE_NOM, "titre": TITRES_PAR_DEFAUT[MESSAGERIE_NOM],
+                 "description": MESSAGERIE_DESCRIPTION_COMPTE,
+                 "lien": PAGE_MESSAGES_DU_COMPTE}]
     masquees = masquees_du_compte()
     return [{"name": nom, "titre": TITRES_PAR_DEFAUT[nom],
              "description": description, "externe": True}
@@ -1343,10 +1351,15 @@ def services_du_hub():
     cette machine. Le proxy le refuse deja a un compte utilisateur (voir
     /api/auth-check) -- lui montrer une tuile qui le renverrait a la page de
     connexion serait promettre une porte qui ne s'ouvre pas.
+
+    Un compte utilisateur n'y trouve que sa tuile Messages
+    (tuile_messagerie_du_compte), sauf s'il l'a rangee.
     """
     services = []
     if not est_admin():
-        return services
+        if MESSAGERIE_NOM in masquees_du_compte():
+            return services
+        return [tuile_messagerie_du_compte()]
     # RANGE EST RANGE, meme pour un service. Dagster occupait une tuile que
     # rien ne permettait de retirer : sur une installation ou l'on n'ouvre
     # jamais l'orchestrateur, c'etait la seule tuile impossible a ecarter de
@@ -1418,6 +1431,49 @@ def _tuile_service(nom, description, adresse, debout, port):
         "build_command": "", "max_memory_mb": None, "alertes": [],
         "cpu_percent": 0.0, "memory_mb": 0.0,
         "presentation": None, "presentation_masquee": False, "presentation_fichier": "",
+    }
+
+
+# LA TUILE MESSAGES D'UN COMPTE UTILISATEUR. Vecu : « Creer une application
+# message plutot qu'un onglet pour les utilisateurs ». Un compte ecrivait a
+# l'administrateur dans une rubrique du panneau, ouverte par une entree du
+# menu (la barre du bas au telephone) : la seule chose de son espace qui ne
+# soit pas une tuile du hub. Elle en devient une, qu'on range, deplace,
+# masque et ouvre comme les autres ; le menu disparait avec elle.
+#
+# POURQUOI une tuile du PANNEAU, et pas l'application Messages : celle-ci
+#   montre les messages de TOUS les comptes. Elle reste reservee a
+#   l'administrateur, le proxy la refuse toujours a un compte. La tuile ouvre
+#   la page /messages du panneau, qui ne relaie a l'application que les
+#   messages de CE compte (routes /compte/, au nom de la session).
+# REGLE : 12 de SECURITE.md -- peut_voir(MESSAGERIE_NOM) reste faux pour un
+#   compte, rien n'est ouvert par le proxy.
+# DEPEND DE : page_messagerie (/messages) et le relais du hub (12) ;
+#   lienOuverture dans panneau.js, qui suit le champ « lien » ; _api_icon,
+#   qui donne a cette tuile l'icone de Messages ; api_masquer, qui la range.
+# ECARTE : ouvrir l'application Messages aux comptes, avec une vue « mes
+#   messages » -- une exception a la regle 12, et le relais du panneau (le
+#   droit d'ecrire sur une application, le delai d'une minute) a refaire
+#   dans l'application. Propose et ecarte avec l'utilisateur.
+PAGE_MESSAGES_DU_COMPTE = "/messages"
+
+
+def tuile_messagerie_du_compte():
+    """La tuile Messages du hub d'un compte utilisateur.
+
+    Les cles d'une tuile d'application d'un compte, et pas une de plus :
+    aucun etat (regle 12 bis), aucun chemin. « lien » remplace l'adresse de
+    l'application : la page du panneau, sur l'origine du panneau.
+    """
+    return {
+        "name": MESSAGERIE_NOM,
+        "titre": TITRES_PAR_DEFAUT[MESSAGERIE_NOM],
+        "description": MESSAGERIE_DESCRIPTION_COMPTE,
+        "categorie": CATEGORIE_CODELAB,
+        "visibility": VISIBILITE_PRIVEE,
+        "lien": PAGE_MESSAGES_DU_COMPTE,
+        "nouvelle_version": False, "nouvelle": False, "ouverte_le": None,
+        "presentation": None,
     }
 
 
@@ -12623,7 +12679,10 @@ def _api_icon(n):
     # Accessible a un compte utilisateur, pour que son espace affiche les
     # icones -- mais seulement des projets qu'il peut ouvrir : la liste des
     # icones est une liste des projets existants.
-    if not peut_voir(n):
+    # Sauf Messages : la tuile Messages d'un compte (tuile_messagerie_du_compte)
+    # porte l'icone de l'application. Elle existe sur toute installation, son
+    # icone ne revele aucun projet, et la page reste fermee (regle 12).
+    if not peut_voir(n) and n != MESSAGERIE_NOM:
         return Response(default_icon_svg(n), mimetype="image/svg+xml")
     apps = load()
     a = apps.get(n)
@@ -13941,8 +14000,14 @@ def api_masquer(n):
     propre hub. peut_voir() garde le dernier mot -- pour une application par
     defaut, il exige l'administrateur -- donc ouvrir ce nom-ci n'ouvre rien
     de plus a un compte utilisateur.
+
+    LA TUILE MESSAGES D'UN COMPTE (tuile_messagerie_du_compte) se range
+    aussi : elle est dans son hub. La ranger ne touche qu'a sa liste, et
+    peut_voir() garde son verdict sur l'application.
     """
-    if not (n in load() or n in SERVICES_MASQUABLES) or not peut_voir(n):
+    sa_messagerie = n == MESSAGERIE_NOM and not est_admin()
+    if not sa_messagerie and (not (n in load() or n in SERVICES_MASQUABLES)
+                              or not peut_voir(n)):
         return jsonify({"error": "Application inconnue."}), 404
     qui = utilisateur_courant() or NOM_ADMIN
     d = lire_masquees()

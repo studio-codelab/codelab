@@ -1122,7 +1122,11 @@ def test_un_compte_utilisateur_ne_peut_pas_ranger_dagster(hub):
     c = _connexion_marie(hub)
     assert c.post("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer").status_code == 404
     d = c.get("/api/mes-apps").get_json()
-    assert d["services"] == [] and d["services_masques"] == []
+    # Ni Dagster ni Mailpit, ranges ou non. Sa seule tuile hors projets est
+    # sa page Messages, du panneau (voir tuile_messagerie_du_compte).
+    assert [s["name"] for s in d["services"]] == [app.MESSAGERIE_NOM]
+    assert d["services"][0]["lien"] == "/messages"
+    assert d["services_masques"] == []
 
 
 

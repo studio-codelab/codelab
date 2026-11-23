@@ -855,6 +855,12 @@ th[aria-sort="ascending"] .ap-th span,th[aria-sort="descending"] .ap-th span{opa
 .fiche-tete h2{font-size:var(--t-xl);font-weight:800;letter-spacing:-.03em}
 .fiche-tete .sous-titre{font-size:12.5px;color:var(--dim);margin-top:2px}
 .fiche-tete .spacer{flex:1}
+/* La rubrique Messages d'un compte, ouverte comme une application depuis sa
+   tuile du hub : le retour au hub, puis l'icone et le nom (sec-message). */
+.msg-retour{margin-bottom:14px}
+.msg-tete{flex-wrap:nowrap}
+.msg-tete>div{min-width:0}
+.msg-tete img{width:52px;height:52px;border-radius:15px}
 .fiche-actions{display:flex;gap:8px;flex-wrap:wrap}
 .fiche-onglets{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:20px}
 .fiche-onglets button{padding:8px 12px;border:none;background:transparent;color:var(--dim);
@@ -1337,7 +1343,6 @@ table.tbl-journal{min-width:560px}
 }
 
 /* ---------------- reperes communs aux deux styles ---------------- */
-.side-item.utilisateur-seul{display:none}
 /* La carte Session : la suppression du compte n'existe que pour un compte
    utilisateur (body.compte-utilisateur, pose par le script). */
 .session-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
@@ -1349,9 +1354,13 @@ table.tbl-journal{min-width:560px}
 #zone-session .utilisateur-seul{display:none}
 .compte-utilisateur #zone-session .btn.utilisateur-seul{display:inline-flex}
 .compte-utilisateur #zone-session .hint.utilisateur-seul{display:block;margin-top:12px}
+/* UN COMPTE UTILISATEUR N'A PAS DE MENU. Il n'y gardait que « Hub » et
+   « Messages » ; Messages est devenue une tuile de son hub (Vecu : « Creer
+   une application message plutot qu'un onglet pour les utilisateurs »), et
+   un menu d'une seule entree ne mene nulle part. Le logo ramene au hub, le
+   menu du compte ouvre les parametres. */
 .compte-utilisateur #sidebar,.compte-utilisateur #btn-menu{display:none}
 .compte-utilisateur .side-item.admin-seul{display:none}
-.compte-utilisateur .side-item.utilisateur-seul{display:flex}
 .choix-titre{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
  color:var(--dim2);margin:4px 0 8px}
 
@@ -1421,7 +1430,6 @@ body{letter-spacing:-.01em}
 .side-item.active{background:var(--txt);color:var(--surface);font-weight:700}
 .side-count{margin-left:0;padding:0 6px;background:var(--accent-soft);color:var(--accent)}
 .side-item.active .side-count{background:rgba(255,255,255,.22);color:inherit}
-.compte-utilisateur #sidebar{display:flex}
 @media (max-width:1180px) and (min-width:761px){
   .side-item span:not(.side-count){display:none}
   .side-item svg{display:block;width:18px;height:18px}
@@ -1636,6 +1644,9 @@ input,select,textarea{border-radius:12px}
 @media (max-width:760px){
   .topbar{height:60px;padding:0 16px}
   :root{--haut-barre:60px;--barre-bas:49px}
+  /* Pas de barre du bas pour un compte utilisateur (pas de menu, voir plus
+     haut) : ni marge sous la page, ni messages poses au-dessus d'elle. */
+  .compte-utilisateur{--barre-bas:0px}
   .sidebar{top:auto;bottom:0;left:0;right:0;transform:none;width:auto;height:auto;
    border-radius:0;padding:3px 6px max(env(safe-area-inset-bottom),4px);
    box-shadow:0 -1px 0 var(--line);background:var(--surface)}
@@ -2435,13 +2446,9 @@ a.pj:hover{border-color:var(--accent)}
       <path d="M16.5 5.2a3.4 3.4 0 010 6.1"/><path d="M18 13.9c2.1.7 3.5 2.6 3.5 4.9"/></svg>
       <span>Utilisateurs</span>
       <span class="side-count" id="side-count-users">0</span></div>
-    <!-- Un compte utilisateur ecrit a l'administrateur dans sa rubrique
-         Messages, une entree du menu (de la barre du bas au telephone). -->
-    <div class="side-item utilisateur-seul" data-sec="message"
-         data-agir="allerA" data-args='["message"]'>
-      <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-      <span>Messages</span>
-      <span class="side-count" id="side-count-suivi" style="display:none">0</span></div>
+    <!-- Un compte utilisateur n'a pas de menu : ses Messages sont une tuile
+         de son hub (tuile_messagerie_du_compte, app.py), qui ouvre la
+         rubrique Messages plus bas. -->
   </div>
 </nav>
 
@@ -3561,10 +3568,21 @@ a.pj:hover{border-color:var(--accent)}
 <!-- ==================== MESSAGES (compte utilisateur) ==================== -->
 <!-- Une rubrique a part, et non plus un onglet des parametres : on vient
      ici pour ECRIRE et suivre ce qu'on a demande, pas pour regler son
-     compte. Au telephone, c'est une entree de la barre du bas. Meme adresse
-     que l'application Messages de l'administrateur (/messages). -->
+     compte. Elle s'ouvre comme une application, depuis sa tuile du hub
+     (tuile_messagerie_du_compte) : l'icone de Messages en tete, et le
+     retour au hub -- le compte n'a pas de menu, et l'application installee
+     pas de bouton « Precedent ». Meme adresse que l'application Messages
+     de l'administrateur (/messages). -->
 <div id="sec-message" class="section" style="display:none">
-  <div class="toolbar"><h2>Messages</h2></div>
+  <button class="btn btn-quiet btn-sm msg-retour" data-agir="showSection" data-args='["hub"]'>
+    <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>Hub</button>
+  <div class="fiche-tete msg-tete">
+    <img src="/api/icon/messages" alt="">
+    <div>
+      <h2>Messages</h2>
+      <div class="sous-titre">Écris à l'administrateur, suis ce que deviennent tes messages.</div>
+    </div>
+  </div>
   <!-- UN MOT A L'ADMINISTRATEUR, dans sa propre rubrique.
        Il vivait au bas du hub, replie sous les applications : la ou tout le
        monde passe, mais aussi la ou personne ne vient pour ecrire. Les

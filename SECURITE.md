@@ -187,6 +187,9 @@ Sans lui, les réglages chiffrés deviennent illisibles.
   Le panneau le pose sur ce qu'il relaie. Il ne protège pas d'un script de la même origine (voir
   plus bas). Le panneau garde la vérification des droits (sur quelle application un compte peut
   écrire), le délai entre deux messages et les envois (mail, notifications).
+  Un compte utilisateur a une tuile *Messages* dans son hub : elle ouvre la page `/messages` **du
+  panneau**, qui ne relaie que ses messages, jamais l'application (règle 12). Seule l'icône de
+  Messages lui est servie, pour cette tuile.
 - **Logos.** Seuls les PNG, JPEG et GIF sont acceptés (512 Ko au plus), reconnus à leur signature. Le
   SVG est refusé, parce qu'il peut porter du script.
 
