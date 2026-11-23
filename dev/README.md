@@ -155,6 +155,18 @@ code (le tien, ou celui d'un agent) n'a pas à pouvoir le faire.
   - Lit `CLAUDE.md`, qui importe `AGENTS.md`.
   - Sa connexion et ses réglages vivent dans `/workspace/.claude-code` (`0700`) : on se connecte
     une fois, et une mise à jour de l'image ne la perd plus.
+  - Il pèse environ 470 Mo à lui seul : avec VS Code, ses serveurs de langage et Codex, le poste
+    approche son plafond de 1 280 Mo. D'où les réglages ci-dessous et le guetteur de mémoire.
+- **VS Code allégé** : au démarrage, le poste ajoute aux réglages de la machine
+  (`~/.vscode-server/data/Machine/settings.json`) les clés absentes `files.watcherExclude` et
+  `search.exclude` (`.claude-code`, `.codex`, `node_modules`, `.venv`, `.dagster-venv`, `vendor`,
+  `__pycache__`) et `typescript.tsserver.maxTsServerMemory` (768). Une clé déjà posée, ou un fichier
+  à commentaires, n'est jamais touché.
+- **La mémoire, guettée** : `codelab memory --guetter` tourne sous le compte des sessions. Chaque
+  processus tué faute de mémoire (compteur `oom_kill` du cgroup) ou création refusée au plafond de
+  processus s'écrit dans `docker logs codelab-dev`, avec les trois plus gros consommateurs, et dans
+  `/workspace/.codelab/poste-memoire.json` (des noms de familles et des tailles, jamais une ligne de
+  commande), que lit le Diagnostic.
 - **Le manuel** est aussi copié à chaque démarrage dans `/workspace/.codex/AGENTS.md`, comme
   instructions globales de Codex.
 
@@ -168,14 +180,14 @@ code (le tien, ou celui d'un agent) n'a pas à pouvoir le faire.
 | Pastille rouge clignotante | 5 crashs en 10 minutes : relance automatique suspendue |
 | Build en échec | journal de l'application, dans sa fiche |
 | Fichier non modifiable | `rm /workspace/.codelab/permissions-v1`, puis redémarrer la stack |
-| VS Code ou l'agent redémarrent en boucle | manque de mémoire ou de processus : `docker stats codelab-dev` ; remonter le plafond (1280 Mo, 1024 processus) sans dépasser le tiers de la machine |
+| VS Code ou l'agent redémarrent en boucle | manque de mémoire ou de processus : `codelab memory` (qui a été tué, quand, et ce qui prend la place), `docker logs codelab-dev \| grep memoire`, la sonde « mémoire du poste » du Diagnostic ; fermer ce qui ne sert pas, sinon remonter le plafond (voir [`INCIDENTS.md`](../INCIDENTS.md)) |
 
 ## L'image
 
 | Fichier | Rôle |
 |---|---|
 | `Dockerfile` | `python:3.13-slim`, openssh, git, Node, `postgresql-client`, `codex`, Chromium, Piper, ffmpeg ; utilisateur `vscode` (uid 1000), groupe `codelab` (gid 2000) |
-| `entrypoint.sh` | au démarrage : permissions de `/workspace`, `CODEX_HOME` et manuel, `CLAUDE_CONFIG_DIR`, clés hôte, `authorized_keys` reconstruit depuis `authorized_keys.d/`, variables de session, gitconfig, extensions VS Code ; puis `sshd -D -e` en processus principal |
+| `entrypoint.sh` | au démarrage : permissions de `/workspace`, `CODEX_HOME` et manuel, `CLAUDE_CONFIG_DIR`, clés hôte, `authorized_keys` reconstruit depuis `authorized_keys.d/`, variables de session, gitconfig, extensions et réglages de mémoire de VS Code, guetteur de mémoire ; puis `sshd -D -e` en processus principal |
 | `codelab` | l'outil de projet |
 | `AGENTS.md` | le manuel des projets, livré dans l'image |
 | `codelab_auth.py`, `codelab_web.py`, `codelab-auth.js`, `codelab-web.js` | les modules déposés par `codelab create` et tenus à jour par `codelab update` |

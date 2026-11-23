@@ -80,7 +80,11 @@ hors du réseau.
 - chaque application déclarée : dossier, commande, port à l'écoute ;
 - espace disque ;
 - fraîcheur et restauration d'essai des sauvegardes ;
-- surface exposée : applications publiques, comptes sans second facteur.
+- surface exposée : applications publiques, comptes sans second facteur ;
+- mémoire du poste : les processus que le noyau a tués faute de mémoire dans `codelab-dev` ces sept
+  derniers jours (VS Code et ses agents redémarrent), lus dans `/workspace/.codelab/poste-memoire.json`
+  que le poste écrit lui-même (`codelab memory --guetter`). Alerte, jamais échec : la stack rend son
+  service.
 
 Les sondes qui lisent l'état du panneau répondent **sans objet** depuis Dagster, où cet état n'est
 pas monté.

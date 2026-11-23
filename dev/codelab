@@ -10,6 +10,9 @@
 #                             base -- sans toucher a ce que le projet a ecrit
 #     ... --tous               tous les projets CodeLab de /workspace (--all)
 #   codelab video [projet]    la video de presentation du projet (video/presentation.mp4)
+#   codelab memory            ce qui prend la memoire du poste, et les processus
+#                             que le noyau a tues faute de memoire
+#     ... --guetter           (l'entrypoint) surveille, journalise, ecrit l'etat
 #   codelab help [commande]   l'aide (en anglais)
 #
 #   Outils plus fins, appeles par les precedents : db <nom> (la base seule),
@@ -110,6 +113,19 @@ codelab vscode-bases
   account. The workstation does it by itself every few minutes.
 HELP
     ;;
+    memory) cat <<'HELP'
+codelab memory
+
+  What uses the workstation's memory, when VS Code or an agent (Claude Code,
+  Codex) keeps restarting:
+    - the codelab-dev limit, what is used now and the peak;
+    - how many processes the kernel killed for lack of memory, and when;
+    - the biggest consumers, by family (VS Code, Claude Code, Codex,
+      language servers...).
+  The workstation watches it by itself: every kill is written in
+  "docker logs codelab-dev" and shown by the hub's Diagnostic.
+HELP
+    ;;
     *) cat <<'HELP'
 codelab -- the CodeLab project tool
 
@@ -120,6 +136,8 @@ codelab -- the CodeLab project tool
                             modules, .gitignore, database), deleting nothing
       --all                 every CodeLab project in /workspace
   codelab video [project]   the project's presentation video
+  codelab memory           what uses the workstation's memory (when VS Code
+                            or an agent keeps restarting)
   codelab help [command]    this help
 
   Finer tools : codelab db <name> (the database only),
@@ -406,6 +424,242 @@ print(f"[codelab] SQLTools : {len(bases)} base(s) declaree(s) dans {chemin}.")
 PYBASES
 }
 
+# ------------------------- la memoire du poste -------------------------
+#
+# Vecu : « VSCode plante sans arret, je ne peux pas utiliser claude code
+# correctement !!! ». Une session Remote-SSH, c'est le serveur VS Code, son
+# hote d'extensions, les serveurs de langage, et les agents -- Claude Code et
+# Codex, chacun son processus. Tout tient sous le plafond de codelab-dev
+# (mem_limit, 1280 Mo : le tiers d'une machine de 4 Go, voir
+# docker-compose.yml). Quand il est atteint, le noyau tue un processus du
+# conteneur, souvent le plus gros, et VS Code ne dit que « l'hote
+# d'extensions s'est arrete » ou se reconnecte : rien ne nommait la cause.
+#
+# Le noyau, lui, la compte : memory.events (oom_kill) et pids.events (max)
+# dans le cgroup du conteneur. Deux usages :
+#   codelab memory            le releve, a la demande, dans le terminal ;
+#   codelab memory --guetter  lance par l'entrypoint SOUS LE COMPTE DES
+#                             SESSIONS (il n'a besoin que de lire /sys et
+#                             /proc) : chaque processus tue s'ecrit dans
+#                             « docker logs codelab-dev », et l'etat dans
+#                             /workspace/.codelab/poste-memoire.json, que lit
+#                             la sonde « memoire du poste » du diagnostic.
+# L'etat ne garde que des noms de familles et des tailles : jamais une ligne
+# de commande, qui peut porter un mot de passe.
+# ESSAYE ET ECARTE : remonter mem_limit. Le plafond borne codelab-dev au tiers
+# de la machine visee (un test le tient), pour que le panneau reste joignable
+# quand un poste s'emballe ; ce releve dit d'abord QUI depasse.
+
+cmd_memoire() {
+  CODELAB_MEMOIRE_MODE="${1:-}" python3 - <<'PYMEMOIRE'
+import json, os, sys, tempfile, time
+
+CGROUP = os.environ.get("CODELAB_CGROUP_DIR", "/sys/fs/cgroup")
+PROC = os.environ.get("CODELAB_PROC_DIR", "/proc")
+ETAT = os.environ.get("CODELAB_MEMOIRE_ETAT", "/workspace/.codelab/poste-memoire.json")
+MODE = os.environ.get("CODELAB_MEMOIRE_MODE", "")
+MO = 1024 * 1024
+GARDER = 20                   # manques de memoire gardes dans l'etat
+RAFRAICHIR = 900              # l'etat se reecrit au plus tous les quarts d'heure sans evenement
+
+# Les familles, dans l'ordre ou on les reconnait : la plus precise d'abord
+# (l'hote d'extensions avant « le serveur VS Code », qui l'englobe).
+FAMILLES = (
+    ("Claude Code", lambda c, l: c == "claude" or "claude-code" in l),
+    ("Codex", lambda c, l: c.startswith("codex") or "openai.chatgpt" in l or "@openai/codex" in l),
+    ("VS Code : hote d'extensions", lambda c, l: "--type=extensionHost" in l),
+    ("VS Code : surveillance des fichiers", lambda c, l: "--type=fileWatcher" in l),
+    ("VS Code : terminaux", lambda c, l: "--type=ptyHost" in l),
+    ("Serveurs de langage", lambda c, l: any(m in l for m in (
+        "tsserver", "typingsInstaller", "pylance", "pyright", "languageserver",
+        "language-server", "jedi"))),
+    ("Java (Database Client JDBC)", lambda c, l: c == "java"),
+    ("Chromium (codelab video)", lambda c, l: "chrom" in c or "headless_shell" in c),
+    ("VS Code : serveur", lambda c, l: ".vscode-server" in l),
+    ("git", lambda c, l: c.startswith("git")),
+    ("Terminaux (shells)", lambda c, l: c in ("bash", "sh", "dash", "zsh")),
+)
+
+
+def lire(*morceaux):
+    try:
+        with open(os.path.join(*morceaux), encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def compteurs(nom):
+    d = {}
+    for ligne in lire(CGROUP, nom).splitlines():
+        m = ligne.split()
+        if len(m) == 2 and m[1].isdigit():
+            d[m[0]] = int(m[1])
+    return d
+
+
+def nombre(nom):
+    t = lire(CGROUP, nom).strip()
+    return int(t) if t.isdigit() else None       # « max » : pas de plafond
+
+
+def mesure():
+    """Le cgroup du conteneur : v2 (un seul arbre), sinon v1 (memory/)."""
+    if os.path.exists(os.path.join(CGROUP, "memory.events")):
+        plafond, utilise = nombre("memory.max"), nombre("memory.current")
+        pic, tues = nombre("memory.peak"), compteurs("memory.events").get("oom_kill", 0)
+    else:
+        plafond = nombre("memory/memory.limit_in_bytes")
+        if plafond and plafond >= 1 << 60:        # v1 ecrit « pas de plafond » ainsi
+            plafond = None
+        utilise = nombre("memory/memory.usage_in_bytes")
+        pic = nombre("memory/memory.max_usage_in_bytes")
+        tues = compteurs("memory/memory.oom_control").get("oom_kill", 0)
+    return {"plafond": plafond, "utilise": utilise, "pic": pic, "tues": tues,
+            "refus_processus": compteurs("pids.events").get("max", 0),
+            "processus": nombre("pids.current"), "processus_max": nombre("pids.max")}
+
+
+def processus():
+    """[(famille, octets)], de la plus grosse a la plus petite. VmRSS : la
+    memoire partagee entre processus Node compte plusieurs fois."""
+    par_famille = {}
+    try:
+        pids = [p for p in os.listdir(PROC) if p.isdigit()]
+    except OSError:
+        return []
+    for pid in pids:
+        rss = 0
+        for ligne in lire(PROC, pid, "status").splitlines():
+            if ligne.startswith("VmRSS:"):
+                m = ligne.split()
+                rss = int(m[1]) * 1024 if len(m) >= 2 and m[1].isdigit() else 0
+                break
+        if not rss:
+            continue
+        comm = lire(PROC, pid, "comm").strip()
+        cmd = lire(PROC, pid, "cmdline").replace("\0", " ")
+        famille = next((nom for nom, test in FAMILLES if test(comm, cmd)), "Autres")
+        par_famille[famille] = par_famille.get(famille, 0) + rss
+    return sorted(par_famille.items(), key=lambda x: -x[1])
+
+
+def mo(octets):
+    return "?" if octets is None else f"{octets / MO:.0f} Mo"
+
+
+def lire_etat():
+    try:
+        d = json.loads(lire(ETAT) or "{}")
+    except ValueError:
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def ecrire_etat(d):
+    dossier = os.path.dirname(ETAT)
+    os.makedirs(dossier, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".poste-memoire.", dir=dossier)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False, indent=1)
+            f.write("\n")
+        # Lisible par le diagnostic (une application, un autre compte) : des
+        # tailles et des noms de familles, rien de secret.
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, ETAT)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def depuis(ts):
+    s = max(0, int(time.time() - ts))
+    if s < 3600:
+        return f"il y a {max(1, s // 60)} min"
+    if s < 86400:
+        return f"il y a {s // 3600} h"
+    return f"il y a {s // 86400} j"
+
+
+def rapport():
+    m = mesure()
+    evenements = [e for e in lire_etat().get("evenements") or [] if isinstance(e, dict)]
+    if m["plafond"]:
+        print(f"Memoire du poste (codelab-dev) : {mo(m['utilise'])} utilises sur un plafond de "
+              f"{mo(m['plafond'])}" + (f", pic {mo(m['pic'])}" if m["pic"] else "") + ".")
+    else:
+        print(f"Memoire du poste (codelab-dev) : {mo(m['utilise'])} utilises, plafond illisible.")
+    print(f"Processus tues faute de memoire depuis le demarrage du conteneur : {m['tues']}.")
+    if m["processus_max"]:
+        print(f"Processus et fils d'execution : {m['processus']} sur {m['processus_max']}"
+              + (f", {m['refus_processus']} creation(s) refusee(s)." if m["refus_processus"] else "."))
+    tues = [e for e in evenements if e.get("tues")]
+    if tues:
+        e = tues[-1]
+        gros = ", ".join(f"{f} {o} Mo" for f, o in e.get("gros") or [])
+        print(f"Dernier manque de memoire : {depuis(e.get('ts', 0))}, {e['tues']} processus tue(s)"
+              + (f" -- les plus gros : {gros}." if gros else "."))
+    print()
+    print("Les plus gros, maintenant (environ : la memoire partagee compte plusieurs fois) :")
+    for famille, octets in processus()[:8]:
+        print(f"  {famille:<38}{mo(octets):>9}")
+    if m["tues"] or tues:
+        print()
+        print("Pour alleger : ferme les fenetres VS Code et les terminaux inutiles, une session")
+        print("d'agent a la fois. Si la machine a plus de 4 Go, remonte mem_limit de codelab-dev")
+        print("dans docker-compose.yml (voir INCIDENTS.md).")
+
+
+def guetter():
+    tours = int(os.environ.get("CODELAB_MEMOIRE_TOURS") or 0)      # 0 : sans fin
+    pause = float(os.environ.get("CODELAB_MEMOIRE_PAUSE") or 30)
+    # L'historique survit au conteneur ; les compteurs du noyau, eux, repartent
+    # de zero avec lui : on compte donc les ecarts depuis zero.
+    evenements = [e for e in lire_etat().get("evenements") or [] if isinstance(e, dict)][-GARDER:]
+    vus = {"tues": 0, "refus_processus": 0}
+    ecrit, tour = 0.0, 0
+    while True:
+        try:
+            m = mesure()
+            neuf = {k: max(0, m[k] - vus[k]) for k in vus}
+            if any(neuf.values()):
+                gros = [[f, round(o / MO)] for f, o in processus()[:3]]
+                evenements = (evenements + [dict(ts=int(time.time()), gros=gros, **neuf)])[-GARDER:]
+                if neuf["tues"]:
+                    print(f"[codelab-dev] memoire pleine : le noyau a tue {neuf['tues']} processus "
+                          f"(plafond {mo(m['plafond'])}). Les plus gros : "
+                          + ", ".join(f"{f} {o} Mo" for f, o in gros)
+                          + ". VS Code et ses agents redemarrent ; voir « codelab memory ».",
+                          flush=True)
+                if neuf["refus_processus"]:
+                    print(f"[codelab-dev] plafond de processus atteint ({m['processus_max']}) : "
+                          f"{neuf['refus_processus']} creation(s) refusee(s).", flush=True)
+                vus = {k: m[k] for k in vus}
+            if any(neuf.values()) or time.time() - ecrit >= RAFRAICHIR:
+                ecrire_etat({"maj": int(time.time()), "plafond_mo": m["plafond"] and round(m["plafond"] / MO),
+                             "pic_mo": m["pic"] and round(m["pic"] / MO), "tues": m["tues"],
+                             "refus_processus": m["refus_processus"], "evenements": evenements})
+                ecrit = time.time()
+        except Exception as e:                    # noqa: BLE001 -- le guetteur ne tombe pas
+            print(f"[codelab-dev] memoire : releve impossible ({type(e).__name__}: {e}).",
+                  file=sys.stderr, flush=True)
+        tour += 1
+        if tours and tour >= tours:
+            return
+        time.sleep(pause)
+
+
+if MODE == "--guetter":
+    guetter()
+elif MODE in ("", "--releve"):
+    rapport()
+else:
+    print(f"codelab memory: option inconnue « {MODE} ».", file=sys.stderr)
+    sys.exit(2)
+PYMEMOIRE
+}
+
 # --------------------------- manuel de l'agent ---------------------------
 #
 # Codex lit deux niveaux d'instructions : un fichier global dans son dossier
@@ -664,6 +918,7 @@ case "${1:-}" in
   help|-h|--help|"") aide "${2:-}" ;;
   db)           shift; cmd_db "$@" ;;
   vscode-bases) shift; cmd_vscode_bases "$@" ;;
+  memory)       shift; cmd_memoire "$@" ;;
   *)
     echo "codelab: commande inconnue \"$1\"." >&2
     usage

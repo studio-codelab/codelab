@@ -547,6 +547,14 @@ plus tard.
 - **Empreinte stable** : les clés hôte survivent aux mises à jour d'image.
 - **VS Code Remote-SSH** : le serveur VS Code et ses extensions sont conservés. D'autres
   extensions s'ajoutent dans le compose.
+- **VS Code allégé pour tenir avec les agents** : le poste règle d'office, sur sa machine, ce qui
+  n'a pas à être surveillé ni fouillé (les conversations de Claude Code et de Codex, `node_modules`,
+  les environnements Python, `vendor`) et borne le serveur TypeScript à 768 Mo. Un réglage déjà posé
+  n'est jamais changé.
+- **La mémoire du poste, surveillée** : chaque processus que le noyau tue faute de mémoire (VS Code
+  redémarre, l'agent s'arrête) s'inscrit dans `docker logs codelab-dev` avec les plus gros
+  consommateurs, et dans la sonde « mémoire du poste » du Diagnostic ; `codelab memory` en fait le
+  relevé à la demande.
 - **Les bases dans VS Code, sans rien créer** : SQLTools est installé d'office, et chaque base du
   serveur y apparaît déjà (groupe « CodeLab »), chacune avec son propre compte, pour n'importe quel
   projet ouvert ; une base créée par `codelab create` ou `codelab update` s'y ajoute aussitôt.
@@ -570,6 +578,7 @@ plus tard.
 | `codelab create <nom> [--sans-db]` | crée le projet complet : dossier, git, `.gitignore`, `README.md`, `AGENTS.md`, `CLAUDE.md`, les modules `codelab_auth` et `codelab_web`, et sa base de données |
 | `codelab update [projet] [--tous]` | met un projet existant à jour (manuel de l'agent, `CLAUDE.md`, modules, `.gitignore`, base) sans rien effacer ; `--tous` pour chaque projet, à lancer après une mise à jour de CodeLab |
 | `codelab video [projet]` | la vidéo de présentation, en un geste depuis le terminal de VS Code : pose au besoin un scénario (`video/scenario.mjs`, un tour automatique de l'application, rien à remplir), le joue dans Chromium, ajoute une voix off française et l'habille comme une pub (titre animé, application dans une fenêtre sur fond vivant, sous-titres, carton de fin, musique composée sur place) dans `video/presentation.mp4` |
+| `codelab memory` | quand VS Code ou un agent redémarre sans cesse : le plafond mémoire du poste, l'utilisé et le pic, les processus tués faute de mémoire (et quand), les plus gros consommateurs par famille (VS Code, Claude Code, Codex, serveurs de langage…) |
 | `codelab help [commande]` | toutes les commandes (aide en anglais) ; aussi dans *Paramètres > Aide*, pour l'administrateur |
 | `codelab db <nom>`, `codelab vscode-bases` | outils plus fins appelés par `create` et `update` : la base seule, les connexions SQLTools |
 
@@ -633,7 +642,9 @@ Détails : [`workspace/diagnostic/README.md`](workspace/diagnostic/README.md).
 - **Page d'état des lieux** (`:9002/diagnostic/`), en lecture seule :
   - les services se parlent-ils ?
   - ce qui doit être fermé l'est-il ?
-  - sauvegardes, disque, applications, exposition.
+  - sauvegardes, disque, applications, exposition ;
+  - la mémoire du poste de développement : les processus tués faute de mémoire ces sept derniers
+    jours (VS Code et ses agents redémarrent), et les plus gros consommateurs.
 - **À la manière de CleanMyMac** : une colonne de rubriques (Services, Données, Sécurité,
   Applications, Ressources), chacune marquée d'un point de couleur selon son pire état, un grand
   anneau du nombre de sondes vertes et un bouton rond « Analyser » qui lance la vérification

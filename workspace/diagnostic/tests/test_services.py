@@ -1733,6 +1733,193 @@ def test_chaque_base_apparait_dans_sqltools_sans_rien_creer(tmp_path):
     assert "codelab vscode-bases --discret" in source and "ecrire_les_bases_du_poste || true" in source
 
 
+# ---------- la memoire du poste : VS Code plus leger, les manques guettes ----------
+#
+# Vecu : « VSCode plante sans arret, je ne peux pas utiliser claude code
+# correctement !!! ». Au plafond memoire de codelab-dev, le noyau tue un
+# processus (l'hote d'extensions, l'agent) et VS Code redemarre sans dire
+# pourquoi.
+
+def _faux_poste(tmp_path, oom_kill=0, refus=0):
+    """Un cgroup v2 et un /proc de poste, ecrits a la main."""
+    cg = tmp_path / "cgroup"
+    cg.mkdir()
+    (cg / "memory.max").write_text(str(1280 * 1024 * 1024))
+    (cg / "memory.current").write_text(str(1100 * 1024 * 1024))
+    (cg / "memory.peak").write_text(str(1279 * 1024 * 1024))
+    (cg / "memory.events").write_text(f"low 0\nhigh 0\nmax 12\noom 3\noom_kill {oom_kill}\n")
+    (cg / "pids.events").write_text(f"max {refus}\n")
+    (cg / "pids.current").write_text("312")
+    (cg / "pids.max").write_text("1024")
+    proc = tmp_path / "proc"
+    for pid, comm, cmd, ko in (
+            ("11", "claude", "/home/vscode/.vscode-server/extensions/anthropic.claude-code-2.1.0/"
+                             "resources/native-binary/claude --output-format stream-json", 480000),
+            ("12", "node", "/home/vscode/.vscode-server/cli/servers/Stable-x/server/node "
+                           "--type=extensionHost --transformURIs", 410000),
+            ("13", "node", "/home/vscode/.vscode-server/cli/servers/Stable-x/server/node "
+                           "/home/vscode/.vscode-server/extensions/x/tsserver.js", 150000),
+            ("14", "codex", "/home/vscode/.vscode-server/extensions/openai.chatgpt-1/bin/codex "
+                            "app-server", 90000),
+            # Un mot de passe dans une ligne de commande : il ne doit sortir nulle part.
+            ("15", "psql", "psql postgres://projet:MOT-DE-PASSE-SECRET@codelab-postgres/projet", 12000),
+            ("16", "kworker", "", 0)):
+        d = proc / pid
+        d.mkdir(parents=True)
+        (d / "comm").write_text(comm + "\n")
+        (d / "cmdline").write_text(cmd.replace(" ", "\0"))
+        (d / "status").write_text(f"Name:\t{comm}\nVmRSS:\t  {ko} kB\n" if ko else f"Name:\t{comm}\n")
+    return {"CODELAB_CGROUP_DIR": str(cg), "CODELAB_PROC_DIR": str(proc),
+            "CODELAB_MEMOIRE_ETAT": str(tmp_path / "ws" / ".codelab" / "poste-memoire.json")}
+
+
+def test_codelab_memoire_nomme_ce_qui_prend_la_memoire_du_poste(tmp_path):
+    """Le releve, a la demande : le plafond, l'utilise et le pic, les
+    processus tues, et les plus gros par famille -- Claude Code d'abord, ici."""
+    env = _faux_poste(tmp_path, oom_kill=2)
+    r, _ = _lancer_codelab(tmp_path, ["memory"], env)
+    assert r.returncode == 0, r.stderr
+    sortie = r.stdout
+    assert "1100 Mo utilises sur un plafond de 1280 Mo, pic 1279 Mo" in sortie
+    assert "faute de memoire depuis le demarrage du conteneur : 2." in sortie
+    assert "312 sur 1024" in sortie
+    lignes = [l.strip() for l in sortie.split("Les plus gros")[1].splitlines()[1:] if l.strip()]
+    assert lignes[0].startswith("Claude Code") and lignes[0].endswith("469 Mo"), lignes
+    assert lignes[1].startswith("VS Code : hote d'extensions"), lignes
+    assert any(l.startswith("Serveurs de langage") for l in lignes)
+    assert any(l.startswith("Codex") for l in lignes)
+    assert "MOT-DE-PASSE" not in sortie
+    assert "remonte mem_limit de codelab-dev" in sortie
+    r, _ = _lancer_codelab(tmp_path, ["memory", "--nimporte"], env)
+    assert r.returncode == 2
+
+
+def test_le_guetteur_inscrit_chaque_manque_de_memoire_sans_ligne_de_commande(tmp_path):
+    """Un processus tue (oom_kill) ou une creation refusee (pids max) : une
+    ligne dans « docker logs codelab-dev », et l'etat que lit le diagnostic.
+    L'historique survit au conteneur, dont les compteurs repartent de zero ;
+    jamais une ligne de commande (elle peut porter un mot de passe)."""
+    env = _faux_poste(tmp_path, oom_kill=2, refus=1)
+    env.update(CODELAB_MEMOIRE_TOURS="1", CODELAB_MEMOIRE_PAUSE="0")
+    r, _ = _lancer_codelab(tmp_path, ["memory", "--guetter"], env)
+    assert r.returncode == 0, r.stderr
+    assert "[codelab-dev] memoire pleine : le noyau a tue 2 processus (plafond 1280 Mo)" in r.stdout
+    assert "Claude Code 469 Mo" in r.stdout
+    assert "plafond de processus atteint (1024) : 1 creation(s) refusee(s)" in r.stdout
+    fichier = tmp_path / "ws" / ".codelab" / "poste-memoire.json"
+    brut = fichier.read_text()
+    assert "MOT-DE-PASSE" not in brut and "psql" not in brut and "native-binary" not in brut
+    assert stat.S_IMODE(fichier.stat().st_mode) == 0o644      # le diagnostic le lit
+    etat = json.loads(brut)
+    assert etat["plafond_mo"] == 1280 and etat["pic_mo"] == 1279 and etat["tues"] == 2
+    (e,) = etat["evenements"]
+    assert e["tues"] == 2 and e["refus_processus"] == 1
+    assert e["gros"][0] == ["Claude Code", 469]
+    # Un nouveau conteneur : les compteurs repartent de zero, l'historique reste.
+    (tmp_path / "cgroup" / "memory.events").write_text("oom_kill 1\n")
+    (tmp_path / "cgroup" / "pids.events").write_text("max 0\n")
+    r, _ = _lancer_codelab(tmp_path, ["memory", "--guetter"], env)
+    etat = json.loads(fichier.read_text())
+    assert [x["tues"] for x in etat["evenements"]] == [2, 1]
+    # Sans rien de neuf, rien ne s'ecrit dans le journal.
+    (tmp_path / "cgroup" / "memory.events").write_text("oom_kill 0\n")
+    r, _ = _lancer_codelab(tmp_path, ["memory", "--guetter"], env)
+    assert "memoire pleine" not in r.stdout
+    # Le releve rappelle le dernier manque.
+    r, _ = _lancer_codelab(tmp_path, ["memory"], env)
+    assert "Dernier manque de memoire : il y a 1 min, 1 processus tue(s)" in r.stdout
+
+
+def test_l_entrypoint_guette_la_memoire_sous_le_compte_des_sessions():
+    """Le guetteur ne fait que lire /sys et /proc : il tourne sous le compte
+    des sessions, et n'ecrit donc jamais en root dans /workspace (qu'une
+    session controle)."""
+    source = open(os.path.join(_racine_depot(), "dev", "entrypoint.sh"), encoding="utf-8").read()
+    assert ('runuser -u "$SSH_USER" -- env HOME="/home/$SSH_USER" \\\n'
+            '    CODELAB_MEMOIRE_ETAT="$WORKSPACE_DIR/.codelab/poste-memoire.json" \\\n'
+            '    codelab memory --guetter &') in source
+    assert "regler_vscode_pour_la_memoire || true" in source
+    assert 'runuser -u "$SSH_USER" -- python3 - "$VSCODE_SERVER_DIR/data/Machine/settings.json"' in source
+
+
+def _reglages_vscode_memoire(chemin):
+    """Le programme de regler_vscode_pour_la_memoire (dev/entrypoint.sh),
+    joue tel quel sur un fichier de reglages."""
+    import subprocess
+    source = open(os.path.join(_racine_depot(), "dev", "entrypoint.sh"), encoding="utf-8").read()
+    programme = source.split("<<'PYVSCODE'\n")[1].split("\nPYVSCODE\n")[0]
+    return subprocess.run(["python3", "-", str(chemin)], input=programme, text=True,
+                          capture_output=True, timeout=30)
+
+
+def test_vscode_n_epie_plus_les_conversations_des_agents(tmp_path):
+    """Claude Code et Codex ecrivent leurs conversations sous /workspace
+    (.claude-code, .codex) a chaque message : chaque ecriture reveillait la
+    surveillance des fichiers de VS Code. Le poste les retire de la
+    surveillance et de la recherche, borne le serveur TypeScript, et ne
+    change jamais un reglage deja pose ni un fichier a commentaires."""
+    reglages = tmp_path / "Machine" / "settings.json"
+    r = _reglages_vscode_memoire(reglages)
+    assert r.returncode == 0, r.stderr
+    d = json.loads(reglages.read_text())
+    for motif in ("**/.claude-code/**", "**/.codex/**", "**/node_modules/**", "**/.venv/**"):
+        assert d["files.watcherExclude"][motif] is True, motif
+        assert d["search.exclude"][motif] is True, motif
+    # Les valeurs par defaut de VS Code restent.
+    assert d["files.watcherExclude"]["**/.git/objects/**"] is True
+    assert d["search.exclude"]["**/node_modules"] is True
+    assert d["typescript.tsserver.maxTsServerMemory"] == 768
+    # Le fichier porte aussi les comptes des bases (codelab vscode-bases) : 0600.
+    assert stat.S_IMODE(reglages.stat().st_mode) == 0o600
+    # Un reglage de l'utilisateur n'est jamais change ; le reste s'ajoute.
+    reglages.write_text(json.dumps({"files.watcherExclude": {"**/tmp/**": True},
+                                    "sqltools.connections": [{"name": "perso"}]}))
+    r = _reglages_vscode_memoire(reglages)
+    d = json.loads(reglages.read_text())
+    assert d["files.watcherExclude"] == {"**/tmp/**": True}
+    assert d["sqltools.connections"] == [{"name": "perso"}]
+    assert d["typescript.tsserver.maxTsServerMemory"] == 768 and "search.exclude" in d
+    # Rien a ajouter : le fichier n'est pas reecrit.
+    avant = reglages.stat().st_mtime_ns
+    assert _reglages_vscode_memoire(reglages).stdout == ""
+    assert reglages.stat().st_mtime_ns == avant
+    # Un fichier a commentaires reste tel quel.
+    reglages.write_text("// a moi\n{}")
+    _reglages_vscode_memoire(reglages)
+    assert reglages.read_text() == "// a moi\n{}"
+
+
+def test_le_diagnostic_dit_quand_le_poste_a_manque_de_memoire(tmp_path):
+    """La sonde « memoire du poste » lit l'etat du guetteur : alerte (jamais
+    echec : la stack rend son service) tant qu'un processus a ete tue dans
+    les sept derniers jours, avec les plus gros ; ok sinon ; sans objet tant
+    que le poste ne l'a pas ecrit."""
+    import time as _time
+    etat = tmp_path / ".codelab" / "poste-memoire.json"
+    r = checks.check_memoire_du_poste(str(tmp_path))
+    assert r[0] == Etat.SANS_OBJET and r[1] == "mémoire du poste"
+    etat.parent.mkdir()
+    maintenant = int(_time.time())
+    etat.write_text(json.dumps({"plafond_mo": 1280, "pic_mo": 1279, "tues": 3, "evenements": [
+        {"ts": maintenant - 30 * 86400, "tues": 9, "gros": [["Codex", 300]]},
+        {"ts": maintenant - 2 * 3600, "tues": 3, "refus_processus": 0,
+         "gros": [["Claude Code", 469], ["VS Code : hote d'extensions", 400]]}]}))
+    r = checks.check_memoire_du_poste(str(tmp_path))
+    assert r[0] == Etat.ALERTE
+    assert "3 processus tué(s) faute de mémoire en 7 jours, le dernier il y a 2 h" in r[2]
+    assert "Claude Code 469 Mo" in r[2] and "codelab memory" in r[2]
+    assert "pic 1279 Mo sur 1280 Mo" in r[2]
+    # Plus rien depuis sept jours : tout va bien.
+    etat.write_text(json.dumps({"plafond_mo": 1280, "pic_mo": 900, "evenements": [
+        {"ts": maintenant - 30 * 86400, "tues": 9}]}))
+    assert checks.check_memoire_du_poste(str(tmp_path))[0] == Etat.OK
+    etat.write_text("{pas du json")
+    assert checks.check_memoire_du_poste(str(tmp_path))[0] == Etat.ALERTE
+    # Rangee avec les ressources, au rang de l'alerte.
+    assert checks.THEME_DES_SONDES["mémoire du poste"] == "ressources"
+    assert checks.SEVERITE_MAX["mémoire du poste"] == Etat.ALERTE
+
+
 # ------------------- isolation des dependances des projets Dagster -------------------
 
 
