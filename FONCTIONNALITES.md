@@ -59,7 +59,9 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     - **Widgets** : *mêlés* aux applications, ou *en haut*, dans leur propre grille. Au téléphone,
       chaque taille a sa forme : *Petit* sur une demi-largeur, *Moyen* en bande basse sur toute la
       largeur, *Grand* deux fois plus haut ; un widget plus rempli grandit au lieu de couper son
-      texte ;
+      texte. « Dernière ouverte » et « Aperçu » gardent la forme de l'ordinateur : en *Moyen*, une
+      bande (l'aperçu à gauche, le nom à droite) ; en *Grand*, une carte haute (l'aperçu en grand,
+      le nom dessous) ;
     - **Couleurs** : un nuancier pour la couleur d'accent (Lagon, Océan, Forêt, Prune, Corail,
       Ardoise, Framboise, Ambre, Indigo, Olive), en clair comme en sombre, et **Personnalisée** :
       n'importe quelle teinte, dont le panneau calcule la version claire et la sombre, toujours

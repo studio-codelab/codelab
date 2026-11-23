@@ -3264,8 +3264,31 @@ def test_au_telephone_chaque_taille_de_widget_a_sa_forme():
     assert ".bw-moyen{min-height:150px}" in tel
     assert ".bw-grand{min-height:300px}" in tel
     assert ".bw-une{min-height:0}" in tel
-    assert ".bw-grand .bw-apercu{min-height:280px}" in tel
+    assert ".bw-grand.bw-une .bw-apercu{min-height:280px}" in tel
     assert "min-height:400px" not in tel and "min-height:220px" not in tel
+
+
+def test_au_telephone_derniere_ouverte_moyen_est_une_bande_et_grand_une_carte():
+    """Vecu : « Widget de derniere ouverture Grand est la meme que Moyen sur
+    mobile, differencie les tailles ». Les deux etaient une carte en colonne,
+    l'apercu seul plus haut en Grand : 293 et 403 px a 390 px de large, la
+    meme forme. Moyen redevient la bande de l'ordinateur (l'apercu a gauche,
+    le nom a droite, 150 px), Grand reste la carte haute (apercu de 280 px).
+    Rendu verifie dans Chromium : 151 et 403 px, en cartes et en icones."""
+    tel = _bloc_telephone(_page_panneau("dashboard.html"))
+    # Plus rien ne remet la bande Moyen en colonne au telephone : elle garde
+    # le « flex-direction:row » de l'ordinateur.
+    assert ".bw-moyen.bw-une{flex-direction:column}" not in tel
+    assert "flex-direction:column" not in tel.split(".bw-moyen.bw-une{")[1].split("}")[0]
+    assert ".bw-moyen.bw-une{min-height:150px}" in tel
+    assert ".bw-moyen.bw-une .bw-apercu{flex:0 0 40%;min-height:0}" in tel
+    # Aucune hauteur d'apercu commune aux deux tailles : c'est elle qui les
+    # rendait jumelles.
+    assert re.search(r"(^|\n)\s*\.bw-apercu\{min-height", tel) is None
+    # Le nom prend sa ligne, le badge « Nouvelle version » passe dessous.
+    assert ".bw-moyen.bw-une .bw-une-nom{flex-basis:100%" in tel
+    page = _page_panneau("dashboard.html")
+    assert ".bw-moyen.bw-une{flex-direction:row}" in page
 
 
 def test_un_mot_a_l_admin_garde_sa_zone_de_texte_en_taille_moyen():

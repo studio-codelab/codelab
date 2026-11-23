@@ -2313,12 +2313,25 @@ a.pj:hover{border-color:var(--accent)}
   :root[data-tuiles="icones"] .bw-petit{grid-column:span 2;grid-row:auto;min-height:150px}
   :root[data-tuiles="icones"] .bw-moyen{grid-column:span 4;grid-row:auto;min-height:150px}
   :root[data-tuiles="icones"] .bw-grand{grid-column:span 4;grid-row:auto;min-height:300px}
-  /* « A la une » : l'apercu fait la difference entre les deux tailles. */
+  /* « DERNIERE OUVERTE » ET « APERCU » : LA FORME fait la difference entre
+     les deux tailles, comme a l'ordinateur.
+       Moyen : une bande basse -- l'apercu a gauche, le nom a droite ;
+       Grand : une carte haute -- l'apercu en grand, le nom dessous.
+     Vecu : « Widget de derniere ouverture Grand est la meme que Moyen sur
+     mobile, differencie les tailles ».
+     ESSAYE ET ECARTE : la meme carte en colonne, l'apercu seul plus haut en
+     Grand (170 puis 280 px). Mesure a 390 px : 293 et 403 px de haut, la
+     meme forme -- on ne voyait pas laquelle on avait choisie. */
   .bw-une{min-height:0}
-  .bw-moyen.bw-une{flex-direction:column}
-  .bw-moyen.bw-une .bw-apercu{border-radius:24px 24px 0 0}
-  .bw-apercu{min-height:170px}
-  .bw-grand .bw-apercu{min-height:280px}
+  .bw-moyen.bw-une{min-height:150px}
+  .bw-moyen.bw-une .bw-apercu{flex:0 0 40%;min-height:0}
+  .bw-moyen.bw-une .bw-une-pied{padding:14px 16px 16px;justify-content:center;gap:6px}
+  .bw-moyen.bw-une .bw-sur{font-size:11px;text-wrap:balance}
+  /* Le nom prend toute la ligne : a cote de « Nouvelle version », dans
+     180 px, il ne gardait que « Atlas des... ». Le badge passe dessous. */
+  .bw-moyen.bw-une .bw-une-nom{flex-basis:100%;font-size:21px}
+  .bw-moyen.bw-une .bw-une-icone{width:72px;height:72px;border-radius:20px}
+  .bw-grand.bw-une .bw-apercu{min-height:280px}
   .hub-barre{width:100%;margin-left:0}
   .hub-recherche{flex:1;width:auto;margin:0}
   .bento-vide{grid-column:span 2;min-height:90px}
